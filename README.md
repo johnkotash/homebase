@@ -1,5 +1,12 @@
 # HomeBase
 
+[![CI](https://github.com/johnkotash/homebase/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/johnkotash/homebase/actions/workflows/ci.yml)
+[![License: AGPL-3.0](https://img.shields.io/badge/license-AGPL--3.0-blue)](LICENSE)
+![Node 24.3+](https://img.shields.io/badge/node-%E2%89%A524.3-339933?logo=node.js&logoColor=white)
+![TypeScript](https://img.shields.io/badge/TypeScript-3178C6?logo=typescript&logoColor=white)
+![Platforms: Linux | Windows | Android](https://img.shields.io/badge/platforms-Linux%20%7C%20Windows%20%7C%20Android-lightgrey)
+[![Secret scan: gitleaks](https://img.shields.io/badge/secret%20scan-gitleaks-orange)](.github/workflows/ci.yml)
+
 HomeBase is a self-hosted command center for AI agents. A small hub runs on a machine you own, a connector next to it runs your agents (Claude Code on your own login, plus Gmail, notes and image helpers), and you follow, steer and approve their work from your phone, a browser or a desktop app, all kept in sync live.
 
 <!-- Screenshots: to come (demo data only). -->
