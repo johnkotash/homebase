@@ -21,8 +21,10 @@ export function turnsOf(text: string): string[][] {
   return out.filter((t) => t.length);
 }
 
+// `command` is a file that always exists (node itself): the adapter looks the CLI up before it spawns, and tests
+// hand it a fake spawn, so they must not depend on a real `claude` being installed on the test machine.
 export const testConfig = (over: Partial<ClaudeAgentConfig> = {}): ClaudeAgentConfig => ({
-  ...defaultClaudeConfig({}), sandboxDir: join(tmpdir(), "homebase-claude-test"), model: "haiku", ...over,
+  ...defaultClaudeConfig({}), command: process.execPath, sandboxDir: join(tmpdir(), "homebase-claude-test"), model: "haiku", ...over,
 });
 
 export interface FakeCall {
