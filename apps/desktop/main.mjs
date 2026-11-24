@@ -32,7 +32,7 @@ function appId() {
     const id = JSON.parse(readFileSync(join(here, "package.json"), "utf8")).homebase?.appId;
     if (typeof id === "string" && id) return id;
   } catch {}
-  return process.env.HOMEBASE_APP_ID || "dev.homebase.app";
+  return process.env.HOMEBASE_APP_ID || "com.kotashbuilds.homebase";
 }
 
 // One window per profile: opening the icon again brings the running window to the front (and never starts a second tunnel).

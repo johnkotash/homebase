@@ -16,5 +16,5 @@ export function loadLocalEnv(root = REPO_ROOT, env = process.env) {
 }
 
 /** The app id for the Android package and the Windows installer (HOMEBASE_APP_ID). */
-export const DEFAULT_APP_ID = "dev.homebase.app";
+export const DEFAULT_APP_ID = "com.kotashbuilds.homebase";
 export const appId = (env = process.env) => env.HOMEBASE_APP_ID?.trim() || DEFAULT_APP_ID;

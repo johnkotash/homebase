@@ -175,7 +175,7 @@ describe("the CLI and the git hooks", () => {
   }, 30_000);
 
   it("pre-push lets an example env file through and still blocks a real one", () => {
-    expect(commit(".env.example", "HOMEBASE_APP_ID=dev.homebase.app\n").code).toBe(0);
+    expect(commit(".env.example", "HOMEBASE_APP_ID=com.kotashbuilds.homebase\n").code).toBe(0);
     const head = g("rev-parse", "HEAD").trim();
     const push = () =>
       spawnSync(process.execPath, [scanner, "--push", "origin", "https://example.org/x.git"], {
