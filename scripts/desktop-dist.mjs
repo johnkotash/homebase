@@ -59,6 +59,14 @@ writeFileSync(join(stage, "package.json"), JSON.stringify({
 run("npm", ["install", "--omit=dev", "--no-audit", "--no-fund", "--ignore-scripts=false"], { cwd: stage });
 
 // 3. Installer
+// Electron 45+ no longer downloads its binary at `npm install`: it fetches it the first time something asks for
+// its path. electron-builder reads node_modules/electron/dist directly, so ask once here (a fresh clone has no dist).
+const electronDir = join(root, "node_modules", "electron");
+if (!existsSync(join(electronDir, "dist"))) {
+  console.log("[desktop:dist] downloading the Electron binary (first build after install)…");
+  execFileSync(process.execPath, ["-e", "require(process.argv[1])", electronDir], { stdio: "inherit" });
+  if (!existsSync(join(electronDir, "dist"))) throw new Error("Electron binary is missing: run `npx install-electron --no` and build again.");
+}
 const config = {
   appId: APP_ID,
   productName: "HomeBase",

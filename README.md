@@ -66,7 +66,7 @@ To start fresh, stop everything and delete `data/` and `apps/connector/.connecto
 
 - **Server (hub + connector)**: [docs/SELF-HOSTING.md](docs/SELF-HOSTING.md) covers installing on an always-on Linux box with systemd, reaching it over Tailscale or SSH, HTTPS, backups and updates.
 - **Pair a device**: on the server, `npm run pair-code` prints a single-use code (10 minutes). Enter the hub's address and the code in the app.
-- **Desktop installer (Windows)**: `npm run desktop:dist` builds `dist-desktop/HomeBase-Setup-<version>.exe` (unsigned, per-user). On first run it asks how to reach the hub: **Via SSH** (it runs its own tunnel with your `~/.ssh/config`) or **Direct** (an address it can reach, e.g. over Tailscale).
+- **Desktop installer (Windows)**: `npm run desktop:dist` builds `dist-desktop/HomeBase-Setup-<version>.exe` (unsigned, per-user; the first build after `npm install` downloads the Electron binary). On first run it asks how to reach the hub: **Via SSH** (it runs its own tunnel with your `~/.ssh/config`) or **Direct** (an address it can reach, e.g. over Tailscale).
 - **Android (sideload)**: `npm run android -- --release --hub-url http://<your-server>:8787` builds `dist-apk/HomeBase.apk`, debug-signed.
 - **Agents**: [docs/AGENTS.md](docs/AGENTS.md) (Claude agent, modes, Comms/Gmail, Notes), [docs/GMAIL-SETUP.md](docs/GMAIL-SETUP.md).
 
