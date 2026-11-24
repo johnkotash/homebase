@@ -5,3 +5,14 @@ useDefault = true
 [allowlist]
 description = "Fake tokens the secret scanner's own tests must detect"
 paths = ['''^scripts/test/scan-secrets\.test\.ts$''']
+
+# Recorded Claude CLI transcripts carry API message and request ids ("msg_...", "req_..."): identifiers, not
+# credentials, but generic-api-key flags them by entropy. Merged into the default rule; both conditions must hold,
+# so any other value in these files, and every id-like value elsewhere, is still reported.
+[[rules]]
+id = "generic-api-key"
+[[rules.allowlists]]
+description = "Anthropic API message/request ids in recorded CLI transcripts"
+condition = "AND"
+paths = ['''^apps/connector/test/fixtures/[^/]+\.jsonl$''']
+regexes = ['''^(?:msg|req)_[A-Za-z0-9]{8,40}$''']
