@@ -1,0 +1,10 @@
+[Unit]
+Description=HomeBase backup (restic, off-machine)
+After=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/env bash %h/homebase/scripts/server/backup.sh run
+Nice=10
+IOSchedulingClass=idle
+TimeoutStartSec=2h

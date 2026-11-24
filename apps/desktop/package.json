@@ -1,0 +1,17 @@
+{
+  "name": "@homebase/desktop",
+  "version": "0.1.0",
+  "private": true,
+  "main": "main.mjs",
+  "scripts": {
+    "start": "electron .",
+    "start:static": "electron . --static"
+  },
+  "devDependencies": {
+    "electron": "45.4.1",
+    "electron-builder": "26.18.0"
+  },
+  "dependencies": {
+    "@huggingface/transformers": "4.3.2"
+  }
+}

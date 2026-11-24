@@ -1,0 +1,97 @@
+#!/usr/bin/env bash
+# devapp: keep a web app running on this server as its own systemd user service.
+# It survives the agent's run ending, HomeBase restarts/deploys, and reboots (linger is on),
+# and listens on all interfaces so it is reachable over Tailscale (or the LAN) at http://<host>:<port>.
+# <host> is HOMEBASE_PUBLIC_HOST (environment, or ~/.config/homebase/homebase.env), else this machine's hostname.
+#
+#   devapp start <name> <port> [--dir DIR] -- <command...>   create (or replace) and start
+#   devapp stop|restart|status|logs <name>                     manage one app
+#   devapp rm <name>                                           stop and remove it
+#   devapp list                                                all apps, ports, state
+#
+# The command gets PORT, HOST=0.0.0.0 and HOSTNAME=0.0.0.0 in its environment. Examples:
+#   devapp start my-site 3100 -- npm run dev -- -H 0.0.0.0 -p 3100
+#   devapp start api 4000 --dir ~/projects/api -- node server.js
+set -euo pipefail
+UNIT_DIR="$HOME/.config/systemd/user"
+ENV_FILE="${HOMEBASE_ENV_FILE:-$HOME/.config/homebase/homebase.env}"
+if [[ -z "${HOMEBASE_PUBLIC_HOST:-}" && -f "$ENV_FILE" ]]; then
+  HOMEBASE_PUBLIC_HOST="$(sed -n 's/^[[:space:]]*HOMEBASE_PUBLIC_HOST=//p' "$ENV_FILE" | tail -n1 | tr -d '"\r ')"
+fi
+PUBLIC_HOST="${HOMEBASE_PUBLIC_HOST:-$(hostname)}"
+unit() { echo "devapp-$1.service"; }
+check_name() { [[ "$1" =~ ^[a-z0-9][a-z0-9-]{0,40}$ ]] || { echo "devapp: name must be lowercase letters, digits and dashes" >&2; exit 2; }; }
+
+cmd="${1:-list}"; shift || true
+case "$cmd" in
+  start)
+    name="${1:?usage: devapp start <name> <port> [--dir DIR] -- <command...>}"; port="${2:?port required}"; shift 2
+    check_name "$name"; [[ "$port" =~ ^[0-9]{2,5}$ ]] || { echo "devapp: bad port" >&2; exit 2; }
+    dir="$PWD"
+    while [[ $# -gt 0 && "$1" != "--" ]]; do
+      case "$1" in --dir) dir="$2"; shift 2 ;; *) echo "devapp: unknown option $1" >&2; exit 2 ;; esac
+    done
+    [[ "${1:-}" == "--" ]] && shift
+    [[ $# -gt 0 ]] || { echo "devapp: give the command after --" >&2; exit 2; }
+    dir="$(cd "$dir" && pwd)"
+    command="$(printf '%q ' "$@")"
+    if systemctl --user is-active --quiet "$(unit "$name")"; then systemctl --user stop "$(unit "$name")"; fi
+    # Something else (an old copy started by an agent run) already on the port: stop it so the service can bind.
+    if pids="$(ss -ltnpH "sport = :$port" 2>/dev/null | grep -o 'pid=[0-9]*' | cut -d= -f2 | sort -u)" && [[ -n "$pids" ]]; then
+      echo "devapp: port $port was in use (pid $pids); stopping that process"; kill $pids 2>/dev/null || true; sleep 2
+    fi
+    mkdir -p "$UNIT_DIR" "$HOME/.config/devapp"
+    run="$HOME/.config/devapp/$name.sh"
+    printf '#!/bin/bash\n# devapp %s: the command it runs (edit and `devapp restart %s` to change it)\ncd %q || exit 1\nexec %s\n' "$name" "$name" "$dir" "$command" > "$run"
+    chmod +x "$run"
+    cat > "$UNIT_DIR/$(unit "$name")" <<EOF
+[Unit]
+Description=devapp $name (port $port)
+
+[Service]
+Type=simple
+WorkingDirectory=$dir
+Environment=PORT=$port
+Environment=HOST=0.0.0.0
+Environment=HOSTNAME=0.0.0.0
+Environment=PATH=$PATH
+Environment=DEVAPP_PORT=$port
+ExecStart=/bin/bash $run
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target
+EOF
+    systemctl --user daemon-reload
+    systemctl --user enable --now "$(unit "$name")" >/dev/null
+    for _ in $(seq 1 30); do
+      ss -ltnH "sport = :$port" | grep -q . && break; sleep 1
+    done
+    if ss -ltnH "sport = :$port" | grep -q .; then
+      echo "devapp: $name is up on port $port"
+      echo "  URL: http://$PUBLIC_HOST:$port"
+      echo "  Through SSH instead: ssh -N -L $port:127.0.0.1:$port <this-server>  then http://localhost:$port"
+    else
+      echo "devapp: $name started but nothing listens on $port yet. Logs: devapp logs $name" >&2
+      journalctl --user -u "$(unit "$name")" -n 20 --no-pager >&2 || true
+      exit 1
+    fi
+    ;;
+  stop|restart|status) name="${1:?name}"; check_name "$name"; systemctl --user "$cmd" "$(unit "$name")" --no-pager ;;
+  logs) name="${1:?name}"; check_name "$name"; journalctl --user -u "$(unit "$name")" -n "${2:-100}" --no-pager ;;
+  rm)
+    name="${1:?name}"; check_name "$name"
+    systemctl --user disable --now "$(unit "$name")" 2>/dev/null || true
+    rm -f "$UNIT_DIR/$(unit "$name")" "$HOME/.config/devapp/$name.sh"; systemctl --user daemon-reload; echo "devapp: removed $name" ;;
+  list)
+    shopt -s nullglob; found=0
+    for f in "$UNIT_DIR"/devapp-*.service; do
+      found=1; n="$(basename "$f" .service)"; n="${n#devapp-}"
+      p="$(grep -oP '^Environment=DEVAPP_PORT=\K[0-9]+' "$f" || echo '?')"
+      s="$(systemctl --user is-active "devapp-$n.service" || true)"
+      printf '%-24s port %-6s %-9s http://%s:%s\n' "$n" "$p" "$s" "$PUBLIC_HOST" "$p"
+    done
+    [[ $found == 1 ]] || echo "devapp: no apps yet" ;;
+  *) sed -n '2,14p' "$0"; exit 2 ;;
+esac

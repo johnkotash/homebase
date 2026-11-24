@@ -1,0 +1,4 @@
+#!/bin/sh
+# Blocks a push whose new commits carry a secret, a forbidden file or personal data (scripts/scan-secrets.mjs).
+# git passes "<local ref> <local sha> <remote ref> <remote sha>" lines on stdin; the scanner reads them.
+exec node scripts/scan-secrets.mjs --push

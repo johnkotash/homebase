@@ -1,0 +1,9 @@
+{
+  "enabled": true,
+  "auth": "subscription",
+  "command": "~/.local/bin/claude",
+  "model": "sonnet",
+  "permissionProfile": "strict",
+  "sandboxDir": "~/homebase-data/claude-workspace",
+  "projectDirs": ["~/projects"]
+}

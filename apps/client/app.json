@@ -1,0 +1,76 @@
+{
+  "expo": {
+    "name": "HomeBase",
+    "slug": "homebase",
+    "scheme": "homebase",
+    "version": "0.1.0",
+    "orientation": "default",
+    "userInterfaceStyle": "dark",
+    "backgroundColor": "#000000",
+    "primaryColor": "#000000",
+    "splash": {
+      "backgroundColor": "#000000"
+    },
+    "icon": "./assets/icon.png",
+    "newArchEnabled": true,
+    "android": {
+      "package": "dev.homebase.app",
+      "permissions": [
+        "android.permission.RECORD_AUDIO",
+        "android.permission.POST_NOTIFICATIONS",
+        "android.permission.ACCESS_LOCAL_NETWORK"
+      ],
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#000000"
+      }
+    },
+    "web": {
+      "output": "single",
+      "bundler": "metro",
+      "favicon": "./assets/icon.png",
+      "name": "HomeBase",
+      "backgroundColor": "#000000",
+      "themeColor": "#000000"
+    },
+    "plugins": [
+      "expo-router",
+      "expo-secure-store",
+      "expo-font",
+      [
+        "expo-speech-recognition",
+        {
+          "microphonePermission": "HomeBase uses the microphone for push-to-talk dictation.",
+          "speechRecognitionPermission": "HomeBase uses speech recognition to turn your voice into text.",
+          "androidSpeechServicePackages": [
+            "com.google.android.googlequicksearchbox",
+            "com.google.android.tts",
+            "com.google.android.as"
+          ]
+        }
+      ],
+      [
+        "expo-notifications",
+        {
+          "color": "#FFFFFF"
+        }
+      ],
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "usesCleartextTraffic": true
+          }
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "HomeBase lets you attach photos to a message for an agent.",
+          "cameraPermission": "HomeBase lets you take a photo and attach it to a message for an agent."
+        }
+      ],
+      "./plugins/withShortCxxDir"
+    ]
+  }
+}

@@ -1,0 +1,35 @@
+{
+  "name": "homebase",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Self-hosted command center for AI agents: a hub, a connector that runs your agents, and Android, web and desktop clients.",
+  "license": "AGPL-3.0-only",
+  "workspaces": ["apps/*", "packages/*"],
+  "engines": { "node": ">=24.3" },
+  "scripts": {
+    "dev": "concurrently -k -n hub,connector,web -c cyan,magenta,green \"npm run dev:server\" \"npm run dev:connector\" \"npm run web\"",
+    "dev:server": "npm run dev -w @homebase/server",
+    "dev:connector": "npm run dev -w @homebase/connector",
+    "pair-code": "npm run pair-code -w @homebase/server --",
+    "remove-demo": "npm run remove-demo -w @homebase/server --",
+    "android": "node scripts/android.mjs",
+    "web": "npm run web -w @homebase/client",
+    "desktop": "node scripts/desktop.mjs",
+    "desktop:static": "npm run build:web && npm run start:static -w @homebase/desktop",
+    "desktop:dist": "node scripts/desktop-dist.mjs",
+    "build:web": "npm run build:web -w @homebase/client",
+    "test": "vitest run",
+    "scan": "node scripts/scan-secrets.mjs --tracked",
+    "scan:staged": "node scripts/scan-secrets.mjs --staged",
+    "prepare": "node scripts/setup-hooks.mjs",
+    "typecheck": "npm run typecheck --workspaces --if-present"
+  },
+  "devDependencies": {
+    "concurrently": "10.0.7",
+    "tsx": "4.23.15",
+    "typescript": "~6.0.3",
+    "vitest": "5.1.1",
+    "@types/node": "^24.0.0",
+    "@types/ws": "^8.5.0"
+  }
+}

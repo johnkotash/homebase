@@ -1,0 +1,15 @@
+[Unit]
+Description=HomeBase connector (agents, including the Claude agent)
+After=homebase-hub.service
+Wants=homebase-hub.service
+
+[Service]
+WorkingDirectory=%h/homebase
+# The Claude agent's shell commands need a normal PATH; ~/.local/bin is where Claude Code installs itself.
+Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin
+ExecStart=/usr/bin/env bash scripts/server/start-connector.sh
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target
