@@ -1,0 +1,7 @@
+# gitleaks settings for CI and local runs: the default rules, plus the one file that holds fake tokens on purpose.
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Fake tokens the secret scanner's own tests must detect"
+paths = ['''^scripts/test/scan-secrets\.test\.ts$''']
