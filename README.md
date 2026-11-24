@@ -82,4 +82,6 @@ See [CONTRIBUTING.md](CONTRIBUTING.md). `npm install` sets up git hooks that sca
 
 ## License
 
+Copyright (C) 2026 John Kotash
+
 AGPL-3.0, see [LICENSE](LICENSE). If you run a modified version of HomeBase as a network service for others, you must offer those users the source code of your version.
