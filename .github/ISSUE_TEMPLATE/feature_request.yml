@@ -1,0 +1,31 @@
+name: Feature request
+description: Suggest a new capability or an improvement
+labels: ["feature"]
+body:
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options: [Inbox, Notes, Chats / sessions, Agents / approvals, Agent browser, Desktop app, Mobile app, Server / hub / deploy, Other]
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: Today
+      description: What's missing or awkward right now?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed
+      description: What should it do instead? Sketches and examples welcome.
+    validations:
+      required: true
+  - type: textarea
+    id: done
+    attributes:
+      label: Done when
+      description: A short checklist that defines "finished".
+      placeholder: "- [ ] …"

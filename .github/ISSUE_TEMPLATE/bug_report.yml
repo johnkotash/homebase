@@ -1,0 +1,37 @@
+name: Bug report
+description: Something in HomeBase doesn't work as expected
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: "Don't include secrets, tokens, real email content, IPs or hostnames. Security problems: use **Security → Report a vulnerability** instead."
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options: [Inbox, Notes, Chats / sessions, Agents / approvals, Agent browser, Desktop app, Mobile app, Server / hub / deploy, Other]
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what you expected, and what happened instead.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: "1. …\n2. …"
+  - type: input
+    id: version
+    attributes:
+      label: Version / commit
+      description: "`git log --oneline -1` on the server, or the app version"
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: Relevant lines from `journalctl --user -u homebase-hub` / `homebase-connector` (remove anything private).
+      render: text
