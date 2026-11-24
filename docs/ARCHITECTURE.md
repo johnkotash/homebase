@@ -599,6 +599,8 @@ The Comms agent is the first real integration. Everything Gmail-related runs on 
 
 The frame has no body field and no priority field. The hub runs the item through the normal pipeline (triage, SLA policy, P0/P1 notification) and ignores an `externalId` it already has, so nothing is duplicated; the watcher also keeps the ids it has delivered and its cursor in `~/homebase-data/gmail-state.json`. Mail is never marked read and never labelled. Bodies are read from Gmail by the agent when the owner asks. `kind: "flag"` is the injection flag of section 9.6; the hub stores it as P1.
 
+The same frame carries health alerts from the connector's machine (`source: "monitor"`, today the backup check of `backup-health.ts`). `kind: "alert"` is one P1 item per `externalId` (`backup:failed:<lastOkAt>`, `backup:overdue:<lastOkAt>`), created with a notification and afterwards only refreshed; `kind: "resolve"` with `externalId` `backup:failed` closes the open items of that condition (status `done`, audited as `monitor.resolve`).
+
 **In the app.** A mail item has "Draft reply with Comms agent", which creates a chat linked to the item and asks the agent to read that thread and save a draft. A saved draft is a `system` run event with `gmailCard`, which the hub turns into a thread message with a `card` (new `messages.card` column; `text` holds the same content for older clients), shown as "Draft saved in Gmail" with the text. Tool results that contain mail are stripped of their mail blocks before they go on the run timeline.
 
 ---

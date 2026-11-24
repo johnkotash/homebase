@@ -4,6 +4,7 @@
 import "./env";
 import { resolve } from "node:path";
 import { ApprovalServer, decidePermission } from "./adapters/claude-approvals";
+import { BackupMonitor } from "./backup-health";
 import { buildAuthProof, checkClaude, createClaudeCodeAdapter, type ClaudeReadiness, type ClaudeRunFacts } from "./adapters/claude-code";
 import { createMockAdapter } from "./adapters/mock";
 import { BrowserService, mergeExtraMcp } from "./browser/service";
@@ -108,6 +109,9 @@ async function main() {
     return readiness;
   };
   let link: HubLink | null = null;
+  // Backup alerts (CONFIGURATION.md): watches backup.sh's status file, when there is one, and raises P1 inbox items.
+  const backups = new BackupMonitor({ emit: (item) => link?.ingestInbox(item) ?? false, log });
+  if (backups.enabled) log(`backup alerts: watching ${backups.config.statusFile} every ${backups.config.checkMs / 60_000} min (${backups.config.mode})`);
   if (claude.enabled) {
     readiness = await checkClaude(claude);
     if (claude.auth === "subscription" && process.env.ANTHROPIC_API_KEY) {
@@ -208,6 +212,11 @@ async function main() {
     agents,
     onReady: () => {
       notes?.sendFullIndex();
+      try {
+        backups.check();
+      } catch (err) {
+        log("backup alerts:", (err as Error).message);
+      }
       browser?.onReady();
     },
     onBrowser: (frame) => browser?.onHubFrame(frame),
@@ -219,6 +228,7 @@ async function main() {
       forget();
       link?.stop();
       if (poll) clearInterval(poll);
+      backups.stop();
       void approvals.stop();
       void comms?.stop();
       void notes?.stop();
@@ -235,6 +245,7 @@ async function main() {
   });
   browser?.attach((frame) => link?.sendBrowser(frame) ?? false);
   link.start();
+  backups.start();
   const stop = () => {
     link?.stop();
     // The browser is a child of this process: close it with the connector.

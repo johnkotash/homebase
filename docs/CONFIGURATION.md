@@ -41,6 +41,8 @@ Keep secrets out of all of these except the files under `~/homebase-data/secrets
 | `HB_NOTES_AUTHOR_EMAIL` | `notes-agent@homebase.local` | Email on the Notes agent's vault commits |
 | `HB_BROWSER`, `HB_BROWSER_EXE`, `HB_BROWSER_PROFILE`, `HB_BROWSER_IDLE_MIN` | on, auto-detected, `<data>/browser/profile` | Agent browser |
 | `HB_IMAGES`, `HB_IMAGES_PER_RUN`, `HB_IMAGES_PER_HOUR`, `HB_CODEX_COMMAND` | on | Image generation through the Codex CLI |
+| `HB_BACKUP_ALERTS` | `auto` | Backup alerts: `auto` only when the status file exists, `1`/`on` also when it is missing, `0`/`off` never. See [Backup alerts](#backup-alerts) |
+| `HB_BACKUP_STATUS_FILE`, `HB_BACKUP_CHECK_MINUTES`, `HB_BACKUP_STALE_HOURS` | `<data>/.backup-status.json`, `10`, `3` | The file `backup.sh run` writes, how often the connector reads it, and after how long without a successful backup it is overdue |
 | `HOMEBASE_PUBLIC_HOST` | machine hostname | Host `devapp` prints in the URLs it gives agents |
 | `TZ` | system | The connector's clock (the agent browser's hours rule) |
 
@@ -64,6 +66,15 @@ Everything has a default (locally the sandbox is `data/claude-workspace`); `~` i
 
 Leave `"auto"` out of `modes` and every write and command stays behind an approval whatever the app asks for. `auth: "api_key"` keeps `ANTHROPIC_API_KEY` in the agent's environment; the default `subscription` strips it.
 
+## Backup alerts
+
+`scripts/server/backup.sh run` writes `<data>/.backup-status.json` (`{ at, result: "ok" | "failed", message, lastOkAt }`) on every run, including runs that fail before restic starts. The connector reads it every `HB_BACKUP_CHECK_MINUTES` and keeps P1 inbox items (amber, with a phone and desktop notification) in step with it:
+
+- **Backup failed**: the last run failed; the item shows its time, the reason and the last successful backup.
+- **Backup overdue**: no successful backup for more than `HB_BACKUP_STALE_HOURS`.
+
+Each condition has one item, updated in place while it lasts (no new item or notification per check; one you close stays closed). The next healthy check marks it done by itself. A machine without the status file sees nothing unless `HB_BACKUP_ALERTS=1`, which counts a missing file as overdue once the connector has run longer than the threshold.
+
 ## Demo content
 
 A new database starts empty: the workspace (named from `HOMEBASE_WORKSPACE_NAME`), the owner, three SLA policies (standard one business day, P0 one hour, P1 four business hours) and neutral settings with no priority senders.
@@ -76,7 +87,7 @@ A new database starts empty: the workspace (named from `HOMEBASE_WORKSPACE_NAME`
 
 | Variable | Default | Meaning |
 |---|---|---|
-| `HOMEBASE_APP_ID` | `dev.homebase.app` | Android package and Windows installer app id. A different id is a different app (pairing is per app) |
+| `HOMEBASE_APP_ID` | `com.kotashbuilds.homebase` | Android package and Windows installer app id. A different id is a different app (pairing is per app) |
 | `HOMEBASE_PUBLISHER` | `HomeBase contributors` | Author and copyright in the desktop installer |
 | `HOMEBASE_SSH_HOST` | unset | Default host for `scripts/deploy.sh` |
 | `EXPO_PUBLIC_HUB_URL` | unset | Pair-screen default baked into a phone build. Pass it as `--hub-url` to `npm run android -- --release`; never set it for the web export |

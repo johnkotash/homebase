@@ -82,16 +82,27 @@ export const ApprovalRequest = z.object({
 export type ApprovalRequest = z.infer<typeof ApprovalRequest>;
 export const ApprovalRequestFrame = z.object({ t: z.literal("approval.request"), approval: ApprovalRequest });
 /**
- * A connector-side watcher found something for the inbox (new mail, or a security flag about mail).
- * Metadata only: there is no body field, so mail bodies cannot reach the hub this way.
+ * A connector-side watcher found something for the inbox: new mail or a security flag about mail (Gmail watcher),
+ * or a health alert from a check on the connector's machine (backups). Metadata only: there is no body field,
+ * so mail bodies cannot reach the hub this way, and there is no priority field.
  */
+export const InboxIngestGmailItem = z.object({
+  source: z.literal("gmail"), kind: z.enum(["mail", "flag"]), externalId: z.string().min(1).max(200),
+  title: z.string().min(1).max(500), snippet: z.string().max(500).nullable().optional(), sender: z.string().max(300).nullable().optional(),
+  externalUrl: z.string().max(500).nullable().optional(), receivedAt: z.number().int().optional(),
+});
+/**
+ * `alert`: one open inbox item per `externalId` (P1), updated in place when sent again. `resolve`: closes the open
+ * alerts whose `externalId` is this one or starts with it plus ":" (an alert's id is `<condition>:<episode>`).
+ */
+export const InboxIngestMonitorItem = z.object({
+  source: z.literal("monitor"), kind: z.enum(["alert", "resolve"]), externalId: z.string().min(1).max(200).regex(/^[\w.:@-]+$/),
+  title: z.string().min(1).max(500), snippet: z.string().max(500).nullable().optional(), sender: z.string().max(300).nullable().optional(),
+  receivedAt: z.number().int().optional(),
+});
 export const InboxIngestFrame = z.object({
   t: z.literal("inbox.ingest"),
-  item: z.object({
-    source: z.literal("gmail"), kind: z.enum(["mail", "flag"]), externalId: z.string().min(1).max(200),
-    title: z.string().min(1).max(500), snippet: z.string().max(500).nullable().optional(), sender: z.string().max(300).nullable().optional(),
-    externalUrl: z.string().max(500).nullable().optional(), receivedAt: z.number().int().optional(),
-  }),
+  item: z.discriminatedUnion("source", [InboxIngestGmailItem, InboxIngestMonitorItem]),
 });
 export type InboxIngestFrame = z.infer<typeof InboxIngestFrame>;
 /** Note metadata from the connector's vault index: the full list at connect, then batches as files change. */

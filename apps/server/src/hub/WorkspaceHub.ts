@@ -477,6 +477,7 @@ export class WorkspaceHub {
    * exists is left alone, so a watcher that reports the same message twice changes nothing.
    */
   ingestFromConnector(peer: Peer, item: Extract<InboundFrame, { t: "inbox.ingest" }>["item"]): InboxItem | null {
+    if (item.source === "monitor") return this.monitorFromConnector(peer, item);
     return this.commit(peer.id, null, (tx) => {
       if (tx.query("inbox_items", "WHERE source = ? AND external_id = ?", item.source, item.externalId)[0]) return null;
       const flag = item.kind === "flag";
@@ -487,6 +488,41 @@ export class WorkspaceHub {
       });
       if (flag) tx.audit("gmail.injection_flag", "inbox_item", created.id, { externalId: item.externalId, sender: item.sender ?? null, title: item.title });
       return created;
+    });
+  }
+
+  /**
+   * A health check on a connector's machine (backups). An alert is one P1 item per `externalId`: the first report
+   * creates it and notifies, later reports only refresh its text, and an item you closed stays closed. A resolve
+   * closes the open alerts of that condition (`externalId` itself or `<externalId>:<episode>`) by itself.
+   */
+  monitorFromConnector(peer: Peer, item: Extract<Extract<InboundFrame, { t: "inbox.ingest" }>["item"], { source: "monitor" }>): InboxItem | null {
+    return this.commit(peer.id, null, (tx) => {
+      if (item.kind === "alert") {
+        const existing = tx.query("inbox_items", "WHERE source = 'monitor' AND external_id = ?", item.externalId)[0];
+        if (existing && existing.title === item.title && existing.snippet === (item.snippet ?? null)) return existing;
+        const created = this.ingestTx(tx, {
+          source: "monitor", externalId: item.externalId, title: item.title, snippet: item.snippet ?? null, body: null,
+          sender: item.sender ?? null, receivedAt: item.receivedAt, priority: "P1", reason: `Health check on ${peer.name || "a connector"}`,
+        });
+        if (!existing) tx.audit("monitor.alert", "inbox_item", created.id, { externalId: item.externalId, title: item.title });
+        return created;
+      }
+      const open = tx.query(
+        "inbox_items",
+        "WHERE source = 'monitor' AND (external_id = ? OR substr(external_id, 1, ?) = ?) AND status NOT IN ('responded','done')",
+        item.externalId, item.externalId.length + 1, `${item.externalId}:`,
+      );
+      let last: InboxItem | null = null;
+      for (const it of open) {
+        const slaState = it.slaState === "running" || it.slaState === "warning" ? (it.slaDueAt != null && tx.now > it.slaDueAt ? "breached" : "met") : it.slaState;
+        last = tx.upsert("inbox_items", {
+          ...it, status: "done", respondedAt: it.respondedAt ?? tx.now, snoozeUntil: null, slaState, updatedAt: tx.now,
+          snippet: `Resolved: ${item.title}${item.snippet ? ` (${item.snippet})` : ""}. ${it.snippet ?? ""}`.trim().slice(0, 500),
+        });
+        tx.audit("monitor.resolve", "inbox_item", it.id, { externalId: it.externalId });
+      }
+      return last;
     });
   }
 
