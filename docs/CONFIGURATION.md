@@ -4,7 +4,7 @@ Nothing about one deployment is built into the code. Settings come from the envi
 
 | Where | Read by | What goes there |
 |---|---|---|
-| `~/.config/homebase/homebase.env` (or `HOMEBASE_ENV_FILE`) | hub, connector, `npm run pair-code`, `devapp` | Server settings below. Real environment variables win. Template: `scripts/server/homebase.env.example` |
+| `~/.config/homebase/homebase.env` (or `HOMEBASE_ENV_FILE`) | hub, connector, `npm run pair-code`, `devapp` | Server settings below. Real environment variables win. Template: `scripts/server/homebase.env.example`. The file is read by a shell, so quote values with spaces: `HB_ORG_NAME="Acme Studio"` |
 | `claude-agent.json` (`HB_CLAUDE_CONFIG`; default `apps/connector/claude-agent.json`) | connector | The Claude agent: model, folders, tools, modes |
 | `.env.local` in the repo (untracked; copy `.env.example`) | build scripts, `apps/client/app.config.js`, `scripts/deploy.sh` | Build settings. Only `HOMEBASE_*` keys are read from it |
 | `~/.config/homebase/denylist.txt` (untracked) | `scripts/scan-secrets.mjs` | Your private names, hosts and emails to block from commits |
