@@ -1,7 +1,7 @@
 // IDs are "<prefix>_<uuidv7>" so either side can create rows offline and they still sort by time.
 export type IdPrefix =
   | "ws" | "usr" | "dev" | "con" | "agt" | "thr" | "msg" | "run" | "apr" | "inb" | "note" | "att"
-  | "int" | "sla" | "ntf" | "mut" | "cmd" | "aud" | "tok" | "toolu" | "prj" | "art";
+  | "int" | "sla" | "ntf" | "mut" | "cmd" | "aud" | "tok" | "toolu" | "prj" | "art" | "term";
 
 function randomBytes(n: number): Uint8Array {
   const out = new Uint8Array(n);

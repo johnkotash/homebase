@@ -16,6 +16,7 @@
   },
   "dependencies": {
     "@homebase/protocol": "*",
+    "@lydell/node-pty": "1.2.0-beta.18",
     "@modelcontextprotocol/sdk": "^1.32.2",
     "sharp": "0.35.5",
     "ws": "8.23.0",

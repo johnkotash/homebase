@@ -81,7 +81,7 @@ export default function RootLayout() {
   return (
     <SafeAreaProvider>
       <View style={{ flex: 1, backgroundColor: color.bg, flexDirection: "row" }}>
-        {wide && session && !immersive ? <Rail /> : null}
+        {wide && session && !immersive && first !== "workspace" ? <Rail /> : null}
         <View style={{ flex: 1, minWidth: 0 }}>
           <TopInset />
           {immersive ? null : <ConnectionBanner />}

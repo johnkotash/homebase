@@ -125,12 +125,13 @@ export function Screen({ children, scroll = true, style, contentStyle, pad = tru
  * Master-detail: list left, detail right at 1100 px and above. Below that only `show` is rendered,
  * so the same route files serve phones and desktops.
  */
-export function Split({ list, detail, show }: { list: React.ReactNode; detail: React.ReactNode; show: "list" | "detail" }) {
+/** `hideList`: the detail needs the room (a session with its workspace beside it). */
+export function Split({ list, detail, show, hideList }: { list: React.ReactNode; detail: React.ReactNode; show: "list" | "detail"; hideList?: boolean }) {
   const { split } = useLayout();
   if (!split) return <View style={st.screen}>{show === "list" ? list : detail}</View>;
   return (
     <View style={[st.screen, { flexDirection: "row" }]}>
-      <View style={st.master}>{list}</View>
+      {hideList ? null : <View style={st.master}>{list}</View>}
       <View style={{ flex: 1, minWidth: 0 }}>{detail}</View>
     </View>
   );

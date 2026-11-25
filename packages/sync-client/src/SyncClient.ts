@@ -1,6 +1,6 @@
 import {
-  ENTITY_NAMES, FOLDER_OPS, PROTOCOL_VERSION, SCHEMA_VERSION, VAULT_OPS, newId,
-  type Change, type EntityName, type FolderOp, type HubToDeviceFrame, type MutationArgs, type MutationName, type Notification, type RunEvent, type VaultOp,
+  ENTITY_NAMES, FILE_OPS, FOLDER_OPS, PROTOCOL_VERSION, SCHEMA_VERSION, VAULT_OPS, newId,
+  type Change, type EntityName, type FileOp, type FolderOp, type HubToDeviceFrame, type MutationArgs, type MutationName, type Notification, type RunEvent, type VaultOp,
 } from "@homebase/protocol";
 import { browserTopic, type BrowserControl, type BrowserInput, type BrowserToDevice } from "@homebase/protocol";
 import { applyOptimistic } from "./optimistic";
@@ -34,6 +34,18 @@ export interface SyncClientOptions {
 
 type Waiter = (r: MutationResult) => void;
 
+/** What a terminal tells whoever opened it. */
+export type TermEvent =
+  | { type: "output"; data: string }
+  /** The terminal was taken up again after a reconnect: clear the screen, the connector replays what it kept. */
+  | { type: "reattached" }
+  | { type: "exit"; code: number | null; reason: string };
+export interface TermOpened {
+  termId: string;
+  shell?: string;
+  cwd?: string;
+}
+
 /**
  * What a stored sync cursor covers: the schema version plus the entity types this build can apply.
  * Changes for entity types the app does not know are dropped while the cursor still moves past them,
@@ -60,6 +72,8 @@ export class SyncClient {
   private vaultSeq = 0;
   private inFlight = new Set<string>();
   private topics = new Map<string, number>();
+  private termWaiters = new Map<string, { resolve: (v: any) => void; reject: (e: Error) => void; timer: ReturnType<typeof setTimeout>; reattach?: string }>();
+  private terms = new Map<string, { cols: number; rows: number; on: (e: TermEvent) => void }>();
   private browserWatchers = new Map<string, Set<(m: BrowserToDevice) => void>>();
   private saveTimer: ReturnType<typeof setTimeout> | null = null;
   private prefix: string;
@@ -329,6 +343,33 @@ export class SyncClient {
         else w.reject(Object.assign(new Error(frame.error?.message ?? "The connector could not do that."), { code: frame.error?.code ?? "folder_error" }));
         return;
       }
+      case "files.res": {
+        const w = this.vaultWaiters.get(frame.id);
+        if (!w) return;
+        this.vaultWaiters.delete(frame.id);
+        clearTimeout(w.timer);
+        if (frame.ok) w.resolve(frame.result);
+        else w.reject(Object.assign(new Error(frame.error?.message ?? "The connector could not do that."), { code: frame.error?.code ?? "file_error" }));
+        return;
+      }
+      case "term.opened": {
+        const w = this.termWaiters.get(frame.id);
+        if (!w) return;
+        this.termWaiters.delete(frame.id);
+        clearTimeout(w.timer);
+        if (frame.ok && frame.termId) w.resolve({ termId: frame.termId, shell: frame.shell, cwd: frame.cwd });
+        else w.reject(Object.assign(new Error(frame.error?.message ?? "The terminal could not start."), { code: frame.error?.code ?? "terminal_error" }));
+        return;
+      }
+      case "term.output":
+        this.terms.get(frame.termId)?.on({ type: "output", data: frame.data });
+        return;
+      case "term.exit": {
+        const t = this.terms.get(frame.termId);
+        this.terms.delete(frame.termId);
+        t?.on({ type: "exit", code: frame.code, reason: frame.reason ?? "exit" });
+        return;
+      }
       case "pong":
         return;
       case "error":
@@ -377,8 +418,88 @@ export class SyncClient {
     });
   }
 
+  // ---------- files and terminals on a connector's machine ----------
+  /**
+   * Asks an agent's connector for something on its machine: list a folder, read, save, create, rename or delete a file.
+   * Online only, nothing cached. The hub takes it only from a device that may approve.
+   */
+  files<T = unknown>(agentId: string, op: FileOp, args: Record<string, unknown> = {}, timeoutMs = 30_000): Promise<T> {
+    return new Promise<T>((resolve, reject) => {
+      const id = `fl_${Date.now().toString(36)}_${++this.vaultSeq}`;
+      const fail = (code: string, message: string) => reject(Object.assign(new Error(message), { code }));
+      if (!(FILE_OPS as readonly string[]).includes(op)) return fail("unsupported", `There is no "${op}" file operation.`);
+      if (this.store.getState().status !== "online" || !this.send({ t: "files.req", id, agentId, op, args })) return fail("offline", "Offline. Files are on the agent's machine, so they need a connection.");
+      const timer = setTimeout(() => {
+        this.vaultWaiters.delete(id);
+        fail("timeout", "The connector did not answer in time.");
+      }, timeoutMs);
+      this.vaultWaiters.set(id, { resolve, reject, timer });
+    });
+  }
+
+  private termRequest(frame: Record<string, unknown> & { t: string }, timeoutMs = 30_000): Promise<TermOpened> {
+    return new Promise<TermOpened>((resolve, reject) => {
+      const id = `tm_${Date.now().toString(36)}_${++this.vaultSeq}`;
+      if (!this.send({ ...frame, id })) return reject(Object.assign(new Error("Offline. The terminal needs a connection."), { code: "offline" }));
+      const timer = setTimeout(() => {
+        this.termWaiters.delete(id);
+        reject(Object.assign(new Error("The connector did not answer in time."), { code: "timeout" }));
+      }, timeoutMs);
+      this.termWaiters.set(id, { resolve, reject, timer });
+    });
+  }
+
+  /**
+   * Opens a shell on the agent's machine. `on` gets its output and its end. After a dropped connection the terminal
+   * is taken up again by itself (`reattached`), or ends (`exit`) when the connector no longer has it.
+   */
+  async termOpen(agentId: string, cwd: string | null, size: { cols: number; rows: number }, on: (e: TermEvent) => void): Promise<TermOpened> {
+    if (this.store.getState().status !== "online") throw Object.assign(new Error("Offline. The terminal needs a connection."), { code: "offline" });
+    const r = await this.termRequest({ t: "term.open", agentId, cwd, cols: size.cols, rows: size.rows });
+    this.terms.set(r.termId, { ...size, on });
+    return r;
+  }
+
+  /** Keys for a terminal. Dropped when offline: a late keystroke is worse than a lost one. */
+  termInput(termId: string, data: string): boolean {
+    return this.terms.has(termId) && this.send({ t: "term.input", termId, data });
+  }
+
+  termResize(termId: string, cols: number, rows: number): boolean {
+    const t = this.terms.get(termId);
+    if (!t) return false;
+    t.cols = cols;
+    t.rows = rows;
+    return this.send({ t: "term.resize", termId, cols, rows });
+  }
+
+  /** Ends a terminal. Its `exit` arrives when the shell is gone; offline, it is forgotten here at once. */
+  termClose(termId: string) {
+    if (!this.terms.has(termId)) return;
+    if (!this.send({ t: "term.close", termId })) {
+      const t = this.terms.get(termId);
+      this.terms.delete(termId);
+      t?.on({ type: "exit", code: null, reason: "closed" });
+    }
+  }
+
+  /** Takes every open terminal up again after a reconnect. */
+  private reattachTerms() {
+    for (const [termId, t] of this.terms) {
+      this.termRequest({ t: "term.attach", termId, cols: t.cols, rows: t.rows }).then(
+        () => t.on({ type: "reattached" }),
+        () => {
+          if (this.terms.get(termId) !== t) return;
+          this.terms.delete(termId);
+          t.on({ type: "exit", code: null, reason: "lost" });
+        },
+      );
+    }
+  }
+
   private online() {
     this.store.setState({ status: "online", synced: true });
+    this.reattachTerms();
     for (const topic of this.topics.keys()) this.send({ t: "sub", topic });
     this.flushOutbox();
   }

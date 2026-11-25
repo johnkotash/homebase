@@ -4,6 +4,7 @@ import { AgentAuthProof, AgentGmailStatus, AgentVaultStatus, Notification, Quest
 import { Effort, ModelName } from "./models";
 import { AgentImagesStatus } from "./images";
 import { AgentFolderFacts, FolderOp } from "./folders";
+import { FileOp, TERM_MAX_INPUT, TERM_MAX_OUTPUT, TermSize } from "./files";
 import { MessageAttachment } from "./attachments";
 import { UsageSnapshot } from "./usage";
 import { BrowserAckFrame, BrowserControlFrame, BrowserInputFrame, BrowserNoticeFrame, BrowserPictureFrame, BrowserStateFrame } from "./browser";
@@ -32,6 +33,24 @@ export const VaultReqFrame = z.object({ t: z.literal("vault.req"), id: z.string(
 export const FoldersReqFrame = z.object({
   t: z.literal("folders.req"), id: z.string().min(1).max(100), agentId: z.string().min(1).max(100), op: FolderOp, args: z.record(z.string(), z.unknown()).default({}),
 });
+
+/**
+ * Files and the terminal on a connector's machine (files.ts). Owner only: the hub takes these only from a device
+ * that may approve. `agentId` names the session's agent; the request goes to that agent's connector.
+ */
+export const FilesReqFrame = z.object({
+  t: z.literal("files.req"), id: z.string().min(1).max(100), agentId: z.string().min(1).max(100), op: FileOp, args: z.record(z.string(), z.unknown()).default({}),
+});
+const TermId = z.string().min(1).max(100);
+/** Opens a shell on the agent's machine, in `cwd` (default: the home folder). Answered with `term.opened`. */
+export const TermOpenFrame = z.object({
+  t: z.literal("term.open"), id: z.string().min(1).max(100), agentId: z.string().min(1).max(100), cwd: z.string().max(4096).nullable().optional(),
+}).extend(TermSize.shape);
+/** Takes up a terminal again after a dropped connection (same device). The connector replays what it kept. */
+export const TermAttachFrame = z.object({ t: z.literal("term.attach"), id: z.string().min(1).max(100), termId: TermId }).extend(TermSize.shape);
+export const TermInputFrame = z.object({ t: z.literal("term.input"), termId: TermId, data: z.string().max(TERM_MAX_INPUT) });
+export const TermResizeFrame = z.object({ t: z.literal("term.resize"), termId: TermId }).extend(TermSize.shape);
+export const TermCloseFrame = z.object({ t: z.literal("term.close"), termId: TermId });
 
 // ---- connector → hub ----
 export const AgentRegistration = z.object({
@@ -120,6 +139,18 @@ export const FoldersResponseFrame = z.object({
   t: z.literal("folders.response"), id: z.string().min(1).max(100), ok: z.boolean(), result: z.unknown().optional(),
   error: z.string().max(500).optional(), code: z.string().max(40).optional(),
 });
+/** The connector's answer to a relayed file request. */
+export const FilesResponseFrame = z.object({
+  t: z.literal("files.response"), id: z.string().min(1).max(100), ok: z.boolean(), result: z.unknown().optional(),
+  error: z.string().max(500).optional(), code: z.string().max(40).optional(),
+});
+/** The shell started (or was taken up again), or why not. */
+export const PtyOpenedFrame = z.object({
+  t: z.literal("pty.opened"), termId: TermId, ok: z.boolean(), reattached: z.boolean().optional(),
+  shell: z.string().max(300).optional(), cwd: z.string().max(4096).optional(), error: z.string().max(500).optional(), code: z.string().max(40).optional(),
+});
+export const PtyOutputFrame = z.object({ t: z.literal("pty.output"), termId: TermId, data: z.string().max(TERM_MAX_OUTPUT) });
+export const PtyExitFrame = z.object({ t: z.literal("pty.exit"), termId: TermId, code: z.number().int().nullable(), reason: z.string().max(200).optional() });
 /**
  * A background job started with `hbjob` (scripts/server/hbjob) has ended. The hub wakes the session it was started from
  * with a short report run, so the agent tells the owner the outcome without being asked; a job with no session becomes an inbox item.
@@ -143,6 +174,7 @@ export const InboundFrame = z.discriminatedUnion("t", [
   HelloFrame, MutateFrame, SubFrame, UnsubFrame, PingFrame, RegisterFrame, CmdAckFrame, RunStatusFrame,
   RunEventFrame, ApprovalRequestFrame, HeartbeatFrame, InboxIngestFrame, VaultReqFrame, VaultIndexFrame, VaultResponseFrame,
   FoldersReqFrame, FoldersResponseFrame, JobDoneFrame, UsageReportFrame,
+  FilesReqFrame, FilesResponseFrame, TermOpenFrame, TermAttachFrame, TermInputFrame, TermResizeFrame, TermCloseFrame, PtyOpenedFrame, PtyOutputFrame, PtyExitFrame,
   // The browser for agents (browser.ts): state and pictures from a connector, a person's hands from a device.
   BrowserStateFrame, BrowserPictureFrame, BrowserNoticeFrame, BrowserInputFrame, BrowserControlFrame, BrowserAckFrame,
 ]);
@@ -150,9 +182,11 @@ export type InboundFrame = z.infer<typeof InboundFrame>;
 export type ConnectorToHubFrame =
   | z.input<typeof HelloFrame> | z.input<typeof RegisterFrame> | z.input<typeof CmdAckFrame> | z.input<typeof RunStatusFrame>
   | z.input<typeof RunEventFrame> | z.input<typeof ApprovalRequestFrame> | z.input<typeof HeartbeatFrame> | z.input<typeof PingFrame> | z.input<typeof InboxIngestFrame>
-  | z.input<typeof VaultIndexFrame> | z.input<typeof VaultResponseFrame> | z.input<typeof FoldersResponseFrame> | z.input<typeof JobDoneFrame> | z.input<typeof UsageReportFrame>;
+  | z.input<typeof VaultIndexFrame> | z.input<typeof VaultResponseFrame> | z.input<typeof FoldersResponseFrame> | z.input<typeof JobDoneFrame> | z.input<typeof UsageReportFrame>
+  | z.input<typeof FilesResponseFrame> | z.input<typeof PtyOpenedFrame> | z.input<typeof PtyOutputFrame> | z.input<typeof PtyExitFrame>;
 export type DeviceToHubFrame =
-  | z.input<typeof HelloFrame> | z.input<typeof MutateFrame> | z.input<typeof SubFrame> | z.input<typeof UnsubFrame> | z.input<typeof PingFrame> | z.input<typeof VaultReqFrame> | z.input<typeof FoldersReqFrame>;
+  | z.input<typeof HelloFrame> | z.input<typeof MutateFrame> | z.input<typeof SubFrame> | z.input<typeof UnsubFrame> | z.input<typeof PingFrame> | z.input<typeof VaultReqFrame> | z.input<typeof FoldersReqFrame>
+  | z.input<typeof FilesReqFrame> | z.input<typeof TermOpenFrame> | z.input<typeof TermAttachFrame> | z.input<typeof TermInputFrame> | z.input<typeof TermResizeFrame> | z.input<typeof TermCloseFrame>;
 
 // ---- hub → device ----
 export const Change = z.object({
@@ -196,6 +230,31 @@ export const FoldersRequestFrame = z.object({
   t: z.literal("folders.request"), id: z.string(), agentKey: z.string(), op: FolderOp, args: z.record(z.string(), z.unknown()), deviceId: z.string(), canApprove: z.boolean(),
 });
 export type FoldersRequestFrame = z.infer<typeof FoldersRequestFrame>;
+/** hub -> device: the answer to `files.req`. */
+export const FilesResFrame = z.object({
+  t: z.literal("files.res"), id: z.string(), ok: z.boolean(), result: z.unknown().optional(),
+  error: z.object({ code: z.string(), message: z.string() }).optional(),
+});
+/** hub -> connector: one relayed file request. Not queued. */
+export const FilesRequestFrame = z.object({
+  t: z.literal("files.request"), id: z.string(), op: FileOp, args: z.record(z.string(), z.unknown()), deviceId: z.string(),
+});
+export type FilesRequestFrame = z.infer<typeof FilesRequestFrame>;
+/** hub -> device: the answer to `term.open` or `term.attach` (`id` is the device's request id). */
+export const TermOpenedFrame = z.object({
+  t: z.literal("term.opened"), id: z.string(), ok: z.boolean(), termId: z.string().optional(), reattached: z.boolean().optional(),
+  shell: z.string().optional(), cwd: z.string().optional(), error: z.object({ code: z.string(), message: z.string() }).optional(),
+});
+export const TermOutputFrame = z.object({ t: z.literal("term.output"), termId: z.string(), data: z.string() });
+export const TermExitFrame = z.object({ t: z.literal("term.exit"), termId: z.string(), code: z.number().int().nullable(), reason: z.string().optional() });
+/** hub -> connector: the terminal frames. `pty.detach`: the device went away; the shell is kept for a while for it to come back. */
+export type HubToConnectorPty =
+  | ({ t: "pty.open"; termId: string; cwd: string | null; deviceId: string } & z.infer<typeof TermSize>)
+  | ({ t: "pty.attach"; termId: string } & z.infer<typeof TermSize>)
+  | { t: "pty.input"; termId: string; data: string }
+  | ({ t: "pty.resize"; termId: string } & z.infer<typeof TermSize>)
+  | { t: "pty.close"; termId: string }
+  | { t: "pty.detach"; termId: string };
 export const ErrorFrame = z.object({ t: z.literal("error"), code: z.string(), message: z.string() });
 
 // ---- hub → connector ----
@@ -228,9 +287,10 @@ export type CmdFrame = z.infer<typeof CmdFrame>;
 
 export const HubToDeviceFrame = z.discriminatedUnion("t", [
   WelcomeFrame, SnapshotFrame, ChangesFrame, AckFrame, EphemeralFrame, NotifyFrame, PongFrame, ErrorFrame, VaultResFrame, FoldersResFrame,
+  FilesResFrame, TermOpenedFrame, TermOutputFrame, TermExitFrame,
 ]);
 export type HubToDeviceFrame = z.infer<typeof HubToDeviceFrame>;
-export type HubToConnectorFrame = z.infer<typeof WelcomeFrame> | CmdFrame | VaultRequestFrame | FoldersRequestFrame | z.infer<typeof PongFrame> | z.infer<typeof ErrorFrame>;
+export type HubToConnectorFrame = z.infer<typeof WelcomeFrame> | CmdFrame | VaultRequestFrame | FoldersRequestFrame | FilesRequestFrame | HubToConnectorPty | z.infer<typeof PongFrame> | z.infer<typeof ErrorFrame>;
 export type OutboundFrame = HubToDeviceFrame | CmdFrame;
 
 export const runTopic = (runId: string) => `run:${runId}`;

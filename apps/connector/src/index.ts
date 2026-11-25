@@ -13,11 +13,13 @@ import {
   APPROVED_FOLDERS_PATH, CLAUDE_AUTH_LABEL, CONFIG_PATH, devPairingCode, forget, loadClaudeConfig, loadSaved, mockAgents, modelFacts, parseArgs, privatePaths, save, type SavedConfig,
 } from "./config";
 import { FolderService } from "./folders";
+import { FileService } from "./files";
+import { TerminalService } from "./terminal";
 import { CommsAgent } from "./gmail/comms";
 import { ImageStudio } from "./images/studio";
 import { expandHome } from "./config";
 import { HubLink, type AgentDef } from "./HubLink";
-import { ATTACHMENT_CAPABILITY } from "@homebase/protocol";
+import { ATTACHMENT_CAPABILITY, FILES_CAPABILITY, TERMINAL_CAPABILITY } from "@homebase/protocol";
 import { protectRoot, protectedRoots } from "./policy";
 import { NotesAgent } from "./vault/agent";
 
@@ -89,6 +91,13 @@ async function main() {
     // The agent's registration lists what is approved, so every device sees a new folder right away.
     onChange: () => link?.updateAgent(claude.key, { workspaces: folders.workspaces(), folders: folders.facts() }),
   });
+  // Files, the editor and the terminal for the owner (issue #3): this machine, as this user. HB_FILES / HB_TERMINAL turn them off.
+  const terminal = new TerminalService({ log });
+  const files = new FileService({
+    host: args.name, protectedRoots, log, terminal: () => terminal.available,
+    workspaces: () => (claude.enabled ? folders.approved().filter((f) => !f.missing).map((f) => ({ label: f.label, path: f.path })) : []),
+  });
+  log(`files for the owner: ${files.enabled ? "on" : "off"}; terminal: ${terminal.available ? "on" : "off"}`);
   /** Sends the agent's current note and auth facts to the hub. */
   const publish = () => {
     proofSentAt = Date.now();
@@ -231,6 +240,11 @@ async function main() {
       browser?.onReady();
     },
     onBrowser: (frame) => browser?.onHubFrame(frame),
+    hostCapabilities: [...(files.enabled ? [FILES_CAPABILITY] : []), ...(terminal.available ? [TERMINAL_CAPABILITY] : [])],
+    onFilesRequest: (op, fargs) => files.handle(op, fargs),
+    onTerminal: (frame) => terminal.onFrame(frame),
+    // The hub forgets this connector's terminals when the link drops, so the shells end with it.
+    onDisconnect: () => terminal.closeAll(),
     onVaultRequest: (op, args) => (notes ? notes.handleRequest(op, args) : Promise.reject(new Error("This connector has no vault."))),
     onFoldersRequest: (agentKey, op, fargs, meta) =>
       claude.enabled && agentKey === claude.key ? folders.handle(op, fargs, meta) : Promise.reject(Object.assign(new Error("This agent does not take folders."), { code: "unsupported" })),
@@ -256,11 +270,13 @@ async function main() {
     },
   });
   browser?.attach((frame) => link?.sendBrowser(frame) ?? false);
+  terminal.attach((frame) => link?.sendTerminal(frame) ?? false);
   link.start();
   backups.start();
   jobs.start();
   const stop = () => {
     link?.stop();
+    terminal.closeAll();
     // The browser is a child of this process: close it with the connector.
     void browser?.stop();
     process.exit(0);

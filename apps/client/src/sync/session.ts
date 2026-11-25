@@ -1,8 +1,8 @@
 import { PermissionsAndroid, Platform } from "react-native";
 import { create } from "zustand";
-import type { FolderOp, MutationArgs, MutationName, Notification, VaultOp } from "@homebase/protocol";
+import type { FileOp, FolderOp, MutationArgs, MutationName, Notification, VaultOp } from "@homebase/protocol";
 import type { BrowserControl, BrowserInput, BrowserToDevice } from "@homebase/protocol";
-import { SyncClient, createSyncStore, type MutationResult } from "@homebase/sync-client";
+import { SyncClient, createSyncStore, type MutationResult, type TermEvent, type TermOpened } from "@homebase/sync-client";
 import { bdbg } from "../browserDebug";
 import { sameClientSession } from "./sessionKey";
 import { clearNoteCache } from "../vault/cache";
@@ -237,3 +237,20 @@ export function browserControl(connectorId: string, control: BrowserControl): bo
   if (!sent) showToast("Not connected", "The browser can be driven only while this device is online.", "error");
   return sent;
 }
+
+// ---- files and terminals on an agent's machine (issue #3) ----
+
+/** Asks an agent's connector to list, read, save, create, rename or delete on its machine. Online only; owner devices only. */
+export function filesRequest<T = unknown>(agentId: string, op: FileOp, args: Record<string, unknown> = {}): Promise<T> {
+  if (!client) return Promise.reject(Object.assign(new Error("This device is not paired"), { code: "not_paired" }));
+  return client.files<T>(agentId, op, args);
+}
+
+/** Opens a shell on the agent's machine; `on` gets its output, a reattach after a reconnect, and its end. */
+export function termOpen(agentId: string, cwd: string | null, size: { cols: number; rows: number }, on: (e: TermEvent) => void): Promise<TermOpened> {
+  if (!client) return Promise.reject(Object.assign(new Error("This device is not paired"), { code: "not_paired" }));
+  return client.termOpen(agentId, cwd, size, on);
+}
+export const termInput = (termId: string, data: string) => client?.termInput(termId, data) ?? false;
+export const termResize = (termId: string, cols: number, rows: number) => client?.termResize(termId, cols, rows) ?? false;
+export const termClose = (termId: string) => client?.termClose(termId);
