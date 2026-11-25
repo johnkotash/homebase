@@ -358,3 +358,69 @@ export function cancelRun(tx: Tx, runId: string) {
   tx.upsert("runs", { ...run, status: "cancelled", endedAt: tx.now, updatedAt: tx.now });
   closeApprovalsForRun(tx, runId, "cancelled");
 }
+
+type JobDone = Extract<InboundFrame, { t: "job.done" }>["job"];
+
+const fmtDuration = (ms: number) => {
+  const m = Math.round(ms / 60_000);
+  return m < 1 ? "under a minute" : m < 90 ? `${m} min` : `${Math.round((m / 60) * 10) / 10} h`;
+};
+
+/** What the woken agent is asked to do: check the job's results and report, without being asked by the owner. */
+export function jobReportPrompt(job: JobDone): string {
+  const outcome = job.exitCode == null ? "ended (exit code unknown)" : job.exitCode === 0 ? "finished successfully (exit code 0)" : `failed (exit code ${job.exitCode})`;
+  const took = job.startedAt ? ` after ${fmtDuration(job.endedAt - job.startedAt)}` : "";
+  return [
+    `[HomeBase] The background job "${job.name}" that you started with hbjob has ${outcome}${took}.`,
+    job.command ? `Command: ${job.command}` : null,
+    job.cwd ? `Directory: ${job.cwd}` : null,
+    job.log ? `Full log: ${job.log}` : null,
+    job.tail ? `Last lines of its log:\n\`\`\`\n${job.tail}\n\`\`\`` : null,
+    "The owner has not seen this yet. Check the results (the log, files, commits, progress notes it wrote) and report to the owner now, " +
+      "briefly: what got done, what changed, anything that failed or still needs them, and how to try it. If the work is not finished " +
+      "and should continue, start the next step with hbjob and say so.",
+  ].filter(Boolean).join("\n");
+}
+
+/**
+ * A background job started with hbjob has ended (frames.ts JobDoneFrame). The session it came from gets a short system
+ * note and a run that reports the outcome, so the owner hears back without asking; the run's end notifies as usual.
+ * A job without a session (or whose session this connector does not serve) becomes an inbox item instead.
+ * Idempotent: a job is reported once, however often the connector sends it.
+ */
+export function onJobDone(hub: WorkspaceHub, peer: Peer, job: JobDone) {
+  hub.commit(peer.id, null, (tx) => {
+    const noteId = `msg_job_${job.id}`;
+    if (tx.get("messages", noteId)) return;
+    const thread = job.threadId ? tx.get("threads", job.threadId) : undefined;
+    const agent = thread?.agentId ? tx.get("agents", thread.agentId) : undefined;
+    const ok = job.exitCode === 0;
+    const title = `Background job "${job.name}" ${job.exitCode == null ? "ended" : ok ? "finished" : `failed (exit ${job.exitCode})`}`;
+    tx.audit("job.done", "job", job.id, { name: job.name, threadId: job.threadId, exitCode: job.exitCode, startedAt: job.startedAt, endedAt: job.endedAt });
+    if (!thread || !agent || agent.connectorId !== peer.id) {
+      hub.ingestTx(tx, {
+        source: "agent", externalId: `job:${job.id}`, title, snippet: (job.tail ?? "").slice(-300) || null, body: null,
+        sender: peer.name || null, receivedAt: job.endedAt, priority: ok ? "P2" : "P1", reason: "A background job on a connector ended",
+      });
+      return;
+    }
+    const prompt = jobReportPrompt(job);
+    const live = tx.query("runs", "WHERE thread_id = ? ORDER BY created_at DESC LIMIT 5", thread.id).find((r) => isLiveRun(r.status));
+    let runId: string;
+    if (live) {
+      tx.command(agent.connectorId, { name: "run.input", runId: live.id, text: prompt });
+      runId = live.id;
+    } else {
+      runId = startRun(tx, { runId: newId("run"), agentId: agent.id, threadId: thread.id, prompt }).id;
+    }
+    tx.upsert("messages", {
+      id: noteId, threadId: thread.id, role: "system", text: `${title}. ${agent.name} is checking the results and will report back.`,
+      source: "agent", runId, authorDeviceId: null, createdAt: tx.now,
+    });
+    tx.patch("threads", thread.id, { lastMessageAt: tx.now, updatedAt: tx.now });
+    tx.notify({
+      priority: ok ? "P2" : "P1", channel: ok ? "agent_updates" : "p1_today", title, body: `${agent.name} is checking the results.`,
+      link: `/chats/${thread.id}`, actions: ["open"], collapseKey: `job_${job.id}`, subjectType: "run", subjectId: runId,
+    });
+  });
+}

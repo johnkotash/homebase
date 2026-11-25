@@ -44,6 +44,7 @@ Keep secrets out of all of these except the files under `~/homebase-data/secrets
 | `HB_BACKUP_ALERTS` | `auto` | Backup alerts: `auto` only when the status file exists, `1`/`on` also when it is missing, `0`/`off` never. See [Backup alerts](#backup-alerts) |
 | `HB_BACKUP_STATUS_FILE`, `HB_BACKUP_CHECK_MINUTES`, `HB_BACKUP_STALE_HOURS` | `<data>/.backup-status.json`, `10`, `3` | The file `backup.sh run` writes, how often the connector reads it, and after how long without a successful backup it is overdue |
 | `HOMEBASE_PUBLIC_HOST` | machine hostname | Host `devapp` prints in the URLs it gives agents |
+| `HOMEBASE_JOBS_DIR` | `$HOMEBASE_DATA_DIR/jobs` | Where `hbjob` records background jobs and their logs; the connector watches it |
 | `TZ` | system | The connector's clock (the agent browser's hours rule) |
 
 ### `claude-agent.json`

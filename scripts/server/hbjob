@@ -1,0 +1,113 @@
+#!/usr/bin/env bash
+# hbjob: run long work in the background so that HomeBase hears when it ends.
+# An agent run ends with its reply, and anything it left running is invisible to HomeBase. A job started here runs
+# as its own systemd user service (it survives the run, HomeBase restarts and logouts; linger is on), logs to a file,
+# and records itself in the jobs folder. When it ends, the connector tells the hub, which wakes the HomeBase session
+# that started it so the agent reports the outcome to the owner without being asked.
+#
+#   hbjob start <name> [--dir DIR] -- <command...>   start a job (the name must not be running already)
+#   hbjob adopt <name> --unit UNIT [--log FILE]       watch a service that is already running, as if hbjob had started it
+#   hbjob list                                        jobs and their state
+#   hbjob status|logs <name>                          one job (logs: -f follows)
+#   hbjob stop <name>                                 stop it (it is still reported, as ended)
+#
+# Started from a HomeBase run, the job reports to that session (HOMEBASE_THREAD_ID). Outside a run it becomes an
+# inbox item. Jobs folder: HOMEBASE_JOBS_DIR, else $HOMEBASE_DATA_DIR/jobs (default ~/homebase-data/jobs).
+set -euo pipefail
+ENV_FILE="${HOMEBASE_ENV_FILE:-$HOME/.config/homebase/homebase.env}"
+if [[ -z "${HOMEBASE_JOBS_DIR:-}" && -z "${HOMEBASE_DATA_DIR:-}" && -f "$ENV_FILE" ]]; then
+  HOMEBASE_DATA_DIR="$(sed -n 's/^[[:space:]]*HOMEBASE_DATA_DIR=//p' "$ENV_FILE" | tail -n1 | tr -d '"\r ')"
+fi
+DATA="${HOMEBASE_DATA_DIR:-$HOME/homebase-data}"; DATA="${DATA/#\~/$HOME}"
+JOBS="${HOMEBASE_JOBS_DIR:-$DATA/jobs}"; JOBS="${JOBS/#\~/$HOME}"
+mkdir -p "$JOBS"
+
+check_name() { [[ "$1" =~ ^[a-z0-9][a-z0-9-]{0,40}$ ]] || { echo "hbjob: name must be lowercase letters, digits and dashes" >&2; exit 2; }; }
+# The newest record for a name.
+latest() { ls -t "$JOBS"/*.json 2>/dev/null | while read -r f; do grep -q "\"name\": *\"$1\"" "$f" && { echo "${f%.json}"; break; }; done; }
+field() { sed -n "s/.*\"$2\": *\"\\([^\"]*\\)\".*/\\1/p" "$1.json" | head -n1; }
+json_str() { local s="${1//\\/\\\\}"; s="${s//\"/\\\"}"; s="${s//$'\n'/ }"; s="${s//$'\t'/ }"; printf '"%s"' "${s//$'\r'/}"; }
+state() {
+  local base="$1" unit; unit="$(field "$base" unit)"
+  if [[ -f "$base.done" ]]; then echo "ended (exit $(sed -n 's/.*"exitCode": *\([-0-9]*\).*/\1/p' "$base.done"))"
+  elif [[ -n "$unit" ]] && systemctl --user is-active --quiet "$unit"; then echo "running"
+  else echo "ended"; fi
+}
+write_record() { # id name unit log cwd command
+  cat > "$JOBS/$1.json.tmp" <<EOF
+{"id": $(json_str "$1"), "name": $(json_str "$2"), "unit": $(json_str "$3"), "log": $(json_str "$4"), "cwd": $(json_str "$5"),
+ "command": $(json_str "$6"), "threadId": $(json_str "${HOMEBASE_THREAD_ID:-}"), "agentKey": $(json_str "${HOMEBASE_AGENT_KEY:-}"),
+ "runId": $(json_str "${HOMEBASE_RUN_ID:-}"), "startedAt": $(date +%s)}
+EOF
+  mv "$JOBS/$1.json.tmp" "$JOBS/$1.json"
+}
+
+cmd="${1:-list}"; shift || true
+case "$cmd" in
+  start)
+    name="${1:?usage: hbjob start <name> [--dir DIR] -- <command...>}"; shift; check_name "$name"
+    dir="$PWD"
+    while [[ $# -gt 0 && "$1" != "--" ]]; do
+      case "$1" in --dir) dir="$2"; shift 2 ;; *) echo "hbjob: unknown option $1" >&2; exit 2 ;; esac
+    done
+    [[ "${1:-}" == "--" ]] && shift
+    [[ $# -gt 0 ]] || { echo "hbjob: give the command after --" >&2; exit 2; }
+    dir="$(cd "$dir" && pwd)"
+    unit="hbjob-$name"
+    if systemctl --user is-active --quiet "$unit"; then echo "hbjob: $name is already running (hbjob stop $name first)" >&2; exit 1; fi
+    systemctl --user reset-failed "$unit" 2>/dev/null || true
+    id="$name-$(date +%Y%m%d-%H%M%S)"
+    log="$JOBS/$id.log"
+    command="$(printf '%q ' "$@")"
+    write_record "$id" "$name" "$unit.service" "$log" "$dir" "${command% }"
+    # The wrapper records the exit code itself, so the report is exact even after systemd has forgotten the service.
+    systemd-run --user --quiet --collect --unit "$unit" -p WorkingDirectory="$dir" --setenv=PATH="$PATH" --setenv=HOME="$HOME" \
+      --setenv=HOMEBASE_JOB_ID="$id" \
+      /bin/bash -c 'cd "$1" || exit 1; shift; log="$1"; done="$2"; shift 2
+        echo "[hbjob] started $(date -Is): $*" >>"$log"
+        "$@" >>"$log" 2>&1 </dev/null; ec=$?
+        echo "[hbjob] ended $(date -Is) with exit code $ec" >>"$log"
+        printf "{\"exitCode\": %d, \"endedAt\": %d}\n" "$ec" "$(date +%s)" >"$done.tmp" && mv "$done.tmp" "$done"
+        exit $ec' hbjob "$dir" "$log" "$JOBS/$id.done" "$@"
+    echo "hbjob: started $name ($id) as $unit.service"
+    echo "  log:  $log   (hbjob logs $name)"
+    if [[ -n "${HOMEBASE_THREAD_ID:-}" ]]; then echo "  When it ends, HomeBase wakes this chat with the result; you do not need to poll it."
+    else echo "  Not started from a HomeBase chat: when it ends, HomeBase puts it in the inbox."; fi
+    ;;
+  adopt)
+    name="${1:?usage: hbjob adopt <name> --unit UNIT [--log FILE]}"; shift; check_name "$name"
+    unit=""; log=""
+    while [[ $# -gt 0 ]]; do
+      case "$1" in --unit) unit="$2"; shift 2 ;; --log) log="$2"; shift 2 ;; *) echo "hbjob: unknown option $1" >&2; exit 2 ;; esac
+    done
+    [[ -n "$unit" ]] || { echo "hbjob: --unit is required" >&2; exit 2; }
+    [[ "$unit" == *.* ]] || unit="$unit.service"
+    systemctl --user is-active --quiet "$unit" || { echo "hbjob: $unit is not running" >&2; exit 1; }
+    id="$name-$(date +%Y%m%d-%H%M%S)"
+    write_record "$id" "$name" "$unit" "$log" "$PWD" "(adopted service $unit)"
+    echo "hbjob: watching $unit as $name ($id); HomeBase reports when it ends."
+    ;;
+  list)
+    printf '%-24s %-22s %s\n' NAME STATE STARTED
+    seen=" "
+    for f in $(ls -t "$JOBS"/*.json 2>/dev/null); do
+      base="${f%.json}"; n="$(field "$base" name)"
+      [[ "$seen" == *" $n "* ]] && continue; seen+="$n "
+      printf '%-24s %-22s %s\n' "$n" "$(state "$base")" "$(date -d "@$(sed -n 's/.*"startedAt": *\([0-9]*\).*/\1/p' "$f")" '+%F %R' 2>/dev/null || echo '?')"
+    done
+    ;;
+  status)
+    name="${1:?usage: hbjob status <name>}"; base="$(latest "$name")"; [[ -n "$base" ]] || { echo "hbjob: no job $name" >&2; exit 1; }
+    echo "$name: $(state "$base")"; cat "$base.json"; [[ -f "$base.done" ]] && cat "$base.done"; true
+    ;;
+  logs)
+    name="${1:?usage: hbjob logs <name> [-f]}"; base="$(latest "$name")"; [[ -n "$base" ]] || { echo "hbjob: no job $name" >&2; exit 1; }
+    log="$(field "$base" log)"; [[ -n "$log" && -f "$log" ]] || { echo "hbjob: $name has no log file" >&2; exit 1; }
+    if [[ "${2:-}" == "-f" ]]; then tail -n 50 -f "$log"; else tail -n 100 "$log"; fi
+    ;;
+  stop)
+    name="${1:?usage: hbjob stop <name>}"; base="$(latest "$name")"; [[ -n "$base" ]] || { echo "hbjob: no job $name" >&2; exit 1; }
+    systemctl --user stop "$(field "$base" unit)" && echo "hbjob: stopped $name"
+    ;;
+  *) sed -n '2,15p' "$0"; exit 2 ;;
+esac
