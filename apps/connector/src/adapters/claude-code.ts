@@ -12,6 +12,7 @@ import { ApprovalServer, PERMISSION_PROMPT_TOOL, PLAN_TOOL, handlePermission, is
 import { ClaudeStreamMapper, LineBuffer, type MappedAction } from "./claude-stream";
 import type { AgentAdapter, RunContext, RunHandle } from "./types";
 import { editDenyRule, type RunFolders } from "../folders";
+import { jobsDirOf } from "../jobs";
 
 /**
  * The Claude agent: one official Claude Code CLI process per run, in headless print mode with
@@ -59,6 +60,21 @@ export function buildChildEnv(base: NodeJS.ProcessEnv, auth: ClaudeAuthMode): { 
   return { env, apiKeyStripped, stripped };
 }
 
+/**
+ * What `hbjob` (scripts/server/hbjob) reads from a run's environment: the session a background job reports back to,
+ * and where job records live (the connector's JobWatcher reads the same folder). The CLI's own background tasks are
+ * turned off: they die with the run and nobody hears when they end, so long work goes through hbjob instead.
+ */
+export function jobEnv(base: NodeJS.ProcessEnv, run: { id: string; threadId?: string | null; agentKey: string }): Record<string, string> {
+  return {
+    HOMEBASE_RUN_ID: run.id,
+    HOMEBASE_THREAD_ID: run.threadId ?? "",
+    HOMEBASE_AGENT_KEY: run.agentKey,
+    HOMEBASE_JOBS_DIR: jobsDirOf(base),
+    CLAUDE_CODE_DISABLE_BACKGROUND_TASKS: "1",
+  };
+}
+
 // ---------------------------------------------------------------- command line
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -66,7 +82,11 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const SYSTEM_NOTE =
   "You are running as the owner's HomeBase agent. The owner reads your replies on a phone, so keep them short. " +
   "Some tool calls are approved or denied by the owner from the HomeBase app; if one is denied or blocked, do not work around it. " +
-  "Each message runs in a fresh process, so anything you start in the background (a dev server, `&`, nohup) dies when the run ends. " +
+  "Each message runs in a fresh process, so anything you start in the background (a dev server, `&`, nohup) dies when the run ends, " +
+  "and you cannot message the owner after your reply: never tell them to check back or ask for status. Finish the work in this run when you can. " +
+  "For long work that must outlive the run (another `claude -p` agent, a long build, test suite or migration), start it with " +
+  "`hbjob start <name> [--dir DIR] -- <command>` (also `hbjob list|status|logs|stop <name>`): HomeBase watches it and, when it ends, " +
+  "wakes this chat with the result so you report to the owner on your own. Never use nohup, setsid, systemd-run or `&` for such work. " +
   "To keep a web app or server running, use `devapp start <name> <port> [--dir DIR] -- <command>` (also `devapp list|logs|restart|stop|rm <name>`): " +
   "it runs as its own service that survives runs, HomeBase restarts and reboots. Bind to 0.0.0.0, use a free port in 3100-3999 (never 8787), " +
   "and give the owner the URL that devapp prints.";
@@ -468,6 +488,7 @@ export function createClaudeCodeAdapter(opts: ClaudeAdapterOptions): AgentAdapte
             }),
           );
           const { env, apiKeyStripped } = buildChildEnv(baseEnv, cfg.auth);
+          Object.assign(env, jobEnv(baseEnv, ctx.run));
           // The CLI's own mode is fixed for the life of a process. A plan run that was approved continues in "default".
           const mcpConfig = extra ? JSON.stringify({ mcpServers: { ...JSON.parse(binding.mcpConfig).mcpServers, ...extra.servers } }) : binding.mcpConfig;
           const args = buildArgs(cfg, {

@@ -20,6 +20,12 @@ mkdir -p "$HOME/homebase-data/secrets" && chmod 700 "$HOME/homebase-data/secrets
 WS=(-w @homebase/server -w @homebase/connector -w @homebase/protocol -w @homebase/sync-client --include-workspace-root)
 if [ -f package-lock.json ]; then npm ci --no-audit --no-fund "${WS[@]}" || npm install --no-audit --no-fund "${WS[@]}"; else npm install --no-audit --no-fund "${WS[@]}"; fi
 
+# Agent tools on the PATH the connector gives its runs: hbjob (background jobs that report back) and devapp (long-running web apps).
+mkdir -p "$HOME/.local/bin"
+chmod +x scripts/server/hbjob scripts/server/devapp
+ln -sf "$REPO/scripts/server/hbjob" "$HOME/.local/bin/hbjob"
+[ -e "$HOME/.local/bin/devapp" ] || ln -s "$REPO/scripts/server/devapp" "$HOME/.local/bin/devapp"
+
 sed "s#%h/homebase#$REPO#g" scripts/server/homebase-hub.service > "$UNITS/homebase-hub.service"
 sed "s#%h/homebase#$REPO#g" scripts/server/homebase-connector.service > "$UNITS/homebase-connector.service"
 systemctl --user daemon-reload

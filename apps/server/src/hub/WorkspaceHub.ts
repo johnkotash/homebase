@@ -7,7 +7,7 @@ import type { SqlStore, SqlValue } from "./SqlStore";
 import { TABLES, deleteEntity, queryEntities, readEntity, rowToEntity, writeEntity } from "./tables";
 import { MUTATION_HANDLERS } from "./mutations";
 import { onApprovalRequest } from "./approvals";
-import { onConnectorGone, onRegister, onRunEvent, onRunStatus, resumeList } from "./runs";
+import { onConnectorGone, onJobDone, onRegister, onRunEvent, onRunStatus, resumeList } from "./runs";
 import { backfillSessions, onRunWritten } from "./sessions";
 import { onMessageWritten } from "./readState";
 import { VaultRelay, onVaultIndex } from "./vault";
@@ -377,6 +377,8 @@ export class WorkspaceHub {
         return onApprovalRequest(this, peer, frame.approval);
       case "inbox.ingest":
         return this.ingestFromConnector(peer, frame.item);
+      case "job.done":
+        return onJobDone(this, peer, frame.job);
       case "vault.index":
         return onVaultIndex(this, peer, frame);
       case "browser.state":

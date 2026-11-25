@@ -119,12 +119,26 @@ export const FoldersResponseFrame = z.object({
   t: z.literal("folders.response"), id: z.string().min(1).max(100), ok: z.boolean(), result: z.unknown().optional(),
   error: z.string().max(500).optional(), code: z.string().max(40).optional(),
 });
+/**
+ * A background job started with `hbjob` (scripts/server/hbjob) has ended. The hub wakes the session it was started from
+ * with a short report run, so the agent tells the owner the outcome without being asked; a job with no session becomes an inbox item.
+ */
+export const JobDoneFrame = z.object({
+  t: z.literal("job.done"),
+  job: z.object({
+    id: z.string().min(1).max(100).regex(/^[\w.:-]+$/), name: z.string().min(1).max(100), threadId: z.string().max(100).nullable(),
+    agentKey: z.string().max(100).nullable().optional(), command: z.string().max(2000).optional(), cwd: z.string().max(1000).nullable().optional(),
+    exitCode: z.number().int().nullable(), startedAt: z.number().int().nullable(), endedAt: z.number().int(),
+    log: z.string().max(1000).nullable().optional(), tail: z.string().max(6000).optional(),
+  }),
+});
+export type JobDoneFrame = z.infer<typeof JobDoneFrame>;
 export const HeartbeatFrame = z.object({ t: z.literal("heartbeat"), activeRuns: z.number().int(), at: z.number().int() });
 
 export const InboundFrame = z.discriminatedUnion("t", [
   HelloFrame, MutateFrame, SubFrame, UnsubFrame, PingFrame, RegisterFrame, CmdAckFrame, RunStatusFrame,
   RunEventFrame, ApprovalRequestFrame, HeartbeatFrame, InboxIngestFrame, VaultReqFrame, VaultIndexFrame, VaultResponseFrame,
-  FoldersReqFrame, FoldersResponseFrame,
+  FoldersReqFrame, FoldersResponseFrame, JobDoneFrame,
   // The browser for agents (browser.ts): state and pictures from a connector, a person's hands from a device.
   BrowserStateFrame, BrowserPictureFrame, BrowserNoticeFrame, BrowserInputFrame, BrowserControlFrame, BrowserAckFrame,
 ]);
@@ -132,7 +146,7 @@ export type InboundFrame = z.infer<typeof InboundFrame>;
 export type ConnectorToHubFrame =
   | z.input<typeof HelloFrame> | z.input<typeof RegisterFrame> | z.input<typeof CmdAckFrame> | z.input<typeof RunStatusFrame>
   | z.input<typeof RunEventFrame> | z.input<typeof ApprovalRequestFrame> | z.input<typeof HeartbeatFrame> | z.input<typeof PingFrame> | z.input<typeof InboxIngestFrame>
-  | z.input<typeof VaultIndexFrame> | z.input<typeof VaultResponseFrame> | z.input<typeof FoldersResponseFrame>;
+  | z.input<typeof VaultIndexFrame> | z.input<typeof VaultResponseFrame> | z.input<typeof FoldersResponseFrame> | z.input<typeof JobDoneFrame>;
 export type DeviceToHubFrame =
   | z.input<typeof HelloFrame> | z.input<typeof MutateFrame> | z.input<typeof SubFrame> | z.input<typeof UnsubFrame> | z.input<typeof PingFrame> | z.input<typeof VaultReqFrame> | z.input<typeof FoldersReqFrame>;
 

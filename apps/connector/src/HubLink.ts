@@ -109,6 +109,11 @@ export class HubLink {
     return this.send({ t: "inbox.ingest", item });
   }
 
+  /** Tells the hub a background job (hbjob) has ended. False when the link is down. */
+  sendJobDone(job: Extract<ConnectorToHubFrame, { t: "job.done" }>["job"]): boolean {
+    return this.send({ t: "job.done", job });
+  }
+
   /** Sends note metadata from the vault index. False when the link is down. */
   sendVaultIndex(frame: Omit<VaultIndexFrame, "t">): boolean {
     return this.send({ t: "vault.index", ...frame });

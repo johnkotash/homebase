@@ -25,6 +25,17 @@ Secret files (`~/.claude`, `~/.ssh`, `.env`, …) are blocked in every mode and 
 
 **Folders.** The agent starts in its sandbox (`data/claude-workspace` locally). Other folders must be allowlisted in `claude-agent.json` or approved from the app; a session stays in the folder it started in and follow-ups resume the same Claude session. Credential folders, the home folder and the vault can never be added.
 
+### Background jobs
+
+A run ends when the agent replies, and the agent cannot message you after that. Work that has to outlive the reply (another `claude -p` agent, a long build or migration) goes through `hbjob`:
+
+```
+hbjob start <name> [--dir DIR] -- <command...>   # also: hbjob list | status | logs [-f] | stop <name>
+hbjob adopt <name> --unit <service> [--log FILE]  # watch a service that is already running
+```
+
+The job runs as its own systemd user service with a log file. When it ends, the connector reports it to the hub, which posts a note in the session that started it and starts a short run there: the agent reads the log and results and tells you what got done, and you get the usual notification. A job started outside a session becomes an inbox item. The Claude CLI's own background tasks are turned off in agent runs, because they would die unseen with the run.
+
 ## Comms agent (Gmail)
 
 The same CLI with far fewer powers: Gmail tools (`gmail_search`, `gmail_read_thread`, `gmail_list_drafts`, `gmail_create_draft`, `gmail_update_draft`, `gmail_send_draft`) and read-only file tools in its own folder. No shell, no writing files, no web. Setup: [GMAIL-SETUP.md](GMAIL-SETUP.md).
