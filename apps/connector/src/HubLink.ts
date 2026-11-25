@@ -1,7 +1,7 @@
 import WebSocket from "ws";
 import {
   isAttachmentId, newId, type AgentRegistration, type ApprovalRequest, type CmdFrame, type ConnectorToHubFrame, type RunEventFrame, type RunStatusFrame,
-  type FolderOp, type FoldersRequestFrame, type VaultIndexFrame, type VaultOp, type VaultRequestFrame,
+  type FileOp, type FilesRequestFrame, type FolderOp, type FoldersRequestFrame, type VaultIndexFrame, type VaultOp, type VaultRequestFrame,
 } from "@homebase/protocol";
 import type { AgentAdapter, ApprovalDecision, RunContext, RunHandle, RunSpec } from "./adapters/types";
 
@@ -23,6 +23,14 @@ export interface HubLinkOptions {
   onVaultRequest?: (op: VaultOp, args: Record<string, unknown>) => Promise<unknown>;
   /** Answers a folder-browser request relayed from a device (list, check, approve, forget). The result goes back to that device only. */
   onFoldersRequest?: (agentKey: string, op: FolderOp, args: Record<string, unknown>, meta: { deviceId: string; canApprove: boolean }) => Promise<unknown>;
+  /** Answers a file request from the owner's device (browse, open, save, rename, delete). The result goes back to that device only. */
+  onFilesRequest?: (op: FileOp, args: Record<string, unknown>, meta: { deviceId: string }) => Promise<unknown>;
+  /** A terminal frame from the hub (pty.open, pty.input, pty.resize, pty.attach, pty.detach, pty.close). */
+  onTerminal?: (frame: { t: string } & Record<string, unknown>) => void;
+  /** Capabilities of the machine itself (FILES_CAPABILITY, TERMINAL_CAPABILITY), added to every agent's registration. */
+  hostCapabilities?: string[];
+  /** The socket to the hub closed. The hub forgets this connector's terminals then. */
+  onDisconnect?: () => void;
   /** A frame for the browser on this connector: the owner's hands, a button in the app, or how many devices are watching. */
   onBrowser?: (frame: { t: string } & Record<string, unknown>) => void;
   reconnect?: boolean;
@@ -91,7 +99,9 @@ export class HubLink {
   private register() {
     this.send({
       t: "register", host: { name: this.opts.name, os: process.platform },
-      agents: this.opts.agents.map(({ adapter: _a, ...reg }) => reg),
+      // What this machine offers the owner (files, a terminal) is added to every agent on it: any session can open them.
+      agents: this.opts.agents.map(({ adapter: _a, ...reg }) => (this.opts.hostCapabilities?.length
+        ? { ...reg, capabilities: [...new Set([...(reg.capabilities ?? []), ...this.opts.hostCapabilities])] } : reg)),
       activeRunIds: [...this.runs.keys()],
     });
   }
@@ -139,6 +149,24 @@ export class HubLink {
     if (!this.opts.onFoldersRequest) return answer(false, undefined, { message: "This connector does not take folders from the app.", code: "unsupported" });
     this.opts.onFoldersRequest(frame.agentKey, frame.op, frame.args ?? {}, { deviceId: frame.deviceId, canApprove: frame.canApprove === true })
       .then((r) => answer(true, r), (e) => answer(false, undefined, { message: (e as Error).message, code: (e as { code?: string }).code }));
+  }
+
+  private onFilesRequest(frame: FilesRequestFrame) {
+    const answer = (ok: boolean, result?: unknown, error?: { message: string; code?: string }) => {
+      let payload = JSON.stringify({ t: "files.response", id: frame.id, ok, ...(ok ? { result } : { error: (error?.message ?? "failed").slice(0, 480), code: (error?.code ?? "file_error").slice(0, 40) }) });
+      if (payload.length > 950_000) payload = JSON.stringify({ t: "files.response", id: frame.id, ok: false, error: "That is too large to send in one piece.", code: "too_large" });
+      if (this.ready && this.ws?.readyState === WebSocket.OPEN) this.ws.send(payload);
+    };
+    if (!this.opts.onFilesRequest) return answer(false, undefined, { message: "This connector does not offer the file browser.", code: "unsupported" });
+    this.opts.onFilesRequest(frame.op, frame.args ?? {}, { deviceId: frame.deviceId })
+      .then((r) => answer(true, r), (e) => answer(false, undefined, { message: (e as Error).message, code: (e as { code?: string }).code }));
+  }
+
+  /** Sends a terminal frame (pty.opened, pty.output, pty.exit). Not queued: the hub forgets a connector's terminals when it drops. */
+  sendTerminal(frame: object): boolean {
+    if (!this.ready || !this.ws || this.ws.readyState !== WebSocket.OPEN) return false;
+    this.ws.send(JSON.stringify(frame));
+    return true;
   }
 
   /** Sends a browser frame (state, a picture, a notice). Not queued: a frame that misses the hub is simply gone. */
@@ -190,6 +218,7 @@ export class HubLink {
       this.ready = false;
       this.ws = null;
       if (this.beat) clearInterval(this.beat);
+      this.opts.onDisconnect?.();
       if (code === 4003) {
         this.log("the hub rejected this connector's token");
         this.opts.onUnauthorized?.();
@@ -228,6 +257,15 @@ export class HubLink {
         return this.onVaultRequest(frame as VaultRequestFrame);
       case "folders.request":
         return this.onFoldersRequest(frame as FoldersRequestFrame);
+      case "files.request":
+        return this.onFilesRequest(frame as FilesRequestFrame);
+      case "pty.open":
+      case "pty.attach":
+      case "pty.input":
+      case "pty.resize":
+      case "pty.close":
+      case "pty.detach":
+        return this.opts.onTerminal?.(frame);
       case "browser.input":
       case "browser.control":
       case "browser.viewers":

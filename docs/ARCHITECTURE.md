@@ -485,6 +485,18 @@ A shell is not confined by either. In Manual every command asks anyway. In Auto,
 
 **Other providers.** Nothing in the data is Claude's: a primary folder and a list of `{ path, access }`. Codex takes the same as `-C <dir>`, `--add-dir` and its `-s read-only | workspace-write` sandbox, so a Codex agent would get its own small `FolderService`-backed adapter and the hub and the app would not change. Image files already follow the primary folder (`<primary>/assets/generated`, `<primary>/brand`).
 
+### 6.7 Files, editor and terminal for the owner (issue #3)
+
+The owner can browse, edit and run a shell on a connector's machine, as the user the connector runs as. Same relay pattern as folders: device → hub → the connector of the agent the device names → back to the asking socket. No new ports.
+
+- **Frames.** `files.req` / `files.request` / `files.response` / `files.res` (ops `roots list read stat write create rename delete`). Terminal: device `term.open|attach|input|resize|close`, hub → connector `pty.open|attach|input|resize|close|detach`, connector → hub `pty.opened|output|exit`, hub → device `term.opened|output|exit` (`packages/protocol/src/files.ts`, `frames.ts`).
+- **Who.** The hub takes these only from a device that may approve, and only for an agent whose connector registered `host-files` / `host-terminal` (every agent on a connector that has them on). The connector refuses when `HB_FILES` / `HB_TERMINAL` is off or it runs as root. A terminal belongs to the device that opened it; no other device can type into it, resize, close or take it up.
+- **Audit.** `files.write|create|rename|delete` (path, size, device) and `terminal.open|close` (folder, shell, exit code). Contents and keystrokes are never stored or logged.
+- **Saving.** A save carries the sha256 the editor opened; if the file changed on disk since (an agent edited it), the connector answers `conflict` and the app offers Reload or Overwrite. The editor also checks the open file every few seconds: an unedited tab reloads, an edited one shows a banner.
+- **Secrets and the vault.** Files that look like secrets (`.ssh/`, `.env`, keys, credential stores) open only after a confirm. The notes vault (`protectRoot`) is read-only: nothing in it, or holding it, is written, renamed, moved or deleted.
+- **Terminal.** A PTY from `@lydell/node-pty` (prebuilt for Linux, macOS and Windows; no compiler). Output is batched (8 ms) and the last 200 KB kept: when a device drops, the shell lives on for `HB_TERMINAL_GRACE_MIN` and the app takes it up again on reconnect and replays the kept output. When the connector's own link to the hub drops, its shells end.
+- **Client.** `app/workspace.tsx` hosts `src/workspace/WorkspaceView.tsx`, an Expo DOM component (`'use dom'`): CodeMirror 6 and xterm.js, inline on web and desktop, in a WebView on Android. Opened from the session header (Files, Terminal) and the project header, in the session's folder.
+
 ---
 
 ## 7. Data model

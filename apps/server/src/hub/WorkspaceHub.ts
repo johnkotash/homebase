@@ -13,6 +13,7 @@ import { onMessageWritten } from "./readState";
 import { VaultRelay, onVaultIndex } from "./vault";
 import { BrowserRelay } from "./browser";
 import { FolderRelay, backfillFolders } from "./folders";
+import { FileRelay, TerminalRelay } from "./files";
 import { deliverable } from "./notify";
 import { computeSla, pickPolicy, slaStateAt } from "./sla";
 import { DEFAULT_TRIAGE, triage, type InboxItemDraft } from "../ingest/triage";
@@ -134,6 +135,9 @@ export class WorkspaceHub {
   browser = new BrowserRelay(this);
   /** Folder-browser requests in flight between a device and an agent's connector. Folder names pass through; nothing is stored. */
   folders = new FolderRelay(this);
+  /** Files and terminals on a connector's machine, for the owner's devices. Contents and keystrokes pass through; nothing is stored. */
+  files = new FileRelay(this);
+  terminals = new TerminalRelay(this);
 
   constructor(public store: SqlStore, opts: HubOptions = {}) {
     this.now = opts.now ?? Date.now;
@@ -312,6 +316,8 @@ export class WorkspaceHub {
     this.vault.peerGone(peer);
     this.browser.peerGone(peer);
     this.folders.peerGone(peer);
+    this.files.peerGone(peer);
+    this.terminals.peerGone(peer);
     if (peer.role === "device") {
       const stillThere = [...this.peers].some((p) => p.role === "device" && p.id === peer.id);
       if (!stillThere) {
@@ -358,6 +364,18 @@ export class WorkspaceHub {
           return this.vault.request(peer, frame);
         case "folders.req":
           return this.folders.request(peer, frame);
+        case "files.req":
+          return this.files.request(peer, frame);
+        case "term.open":
+          return this.terminals.open(peer, frame);
+        case "term.attach":
+          return this.terminals.attach(peer, frame);
+        case "term.input":
+          return this.terminals.input(peer, frame);
+        case "term.resize":
+          return this.terminals.resize(peer, frame);
+        case "term.close":
+          return this.terminals.close(peer, frame);
         default:
           return peer.send({ t: "error", code: "bad_frame", message: `Unexpected frame ${frame.t} from a device` });
       }
@@ -391,6 +409,14 @@ export class WorkspaceHub {
         return this.vault.response(peer, frame);
       case "folders.response":
         return this.folders.response(peer, frame);
+      case "files.response":
+        return this.files.response(peer, frame);
+      case "pty.opened":
+        return this.terminals.onOpened(peer, frame);
+      case "pty.output":
+        return this.terminals.onOutput(peer, frame);
+      case "pty.exit":
+        return this.terminals.onExit(peer, frame);
       case "heartbeat":
         this.store.run("UPDATE connectors SET last_seen_at = ? WHERE id = ?", this.now(), peer.id);
         return;

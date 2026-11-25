@@ -2,7 +2,7 @@ import { router } from "expo-router";
 import React, { useDeferredValue, useEffect, useMemo, useState } from "react";
 import { ScrollView, StyleSheet, View } from "react-native";
 import {
-  DEFAULT_IMAGE_ROUTE, IMAGE_ROUTES, ROUTE_BLURB, ROUTE_LABEL, UNSORTED, filterSessions, folderLabel, newId, projectAgents, projectStats, searchSessions, sortProjects, sortSessions,
+  DEFAULT_IMAGE_ROUTE, FILES_CAPABILITY, IMAGE_ROUTES, ROUTE_BLURB, ROUTE_LABEL, UNSORTED, filterSessions, folderLabel, newId, projectAgents, projectStats, searchSessions, sortProjects, sortSessions,
   type Project, type ProjectStats, type SessionHit, type SessionRow,
 } from "@homebase/protocol";
 import { ago } from "../format";
@@ -241,6 +241,11 @@ export function ProjectDetail({ id }: { id: string }) {
       <Header title={project.name} subtitle={project.description ?? "Project"} back="/projects"
         right={
           <>
+            {/* Files, the editor and the terminal on the default agent's machine, in the project's folder. */}
+            {def?.capabilities?.includes(FILES_CAPABILITY) ? (
+              <IconBtn icon="code" label={`Files in ${project.defaultCwd ?? "the agent's home folder"}`} testID="project-files"
+                onPress={() => router.push(`/workspace?agent=${encodeURIComponent(def.id)}${project.defaultCwd ? `&path=${encodeURIComponent(project.defaultCwd)}` : ""}` as any)} />
+            ) : null}
             <IconBtn icon="bookmark" label={project.pinned ? "Unpin project" : "Pin project"} active={project.pinned} onPress={() => update({ pinned: !project.pinned })} />
             <IconBtn icon="edit-2" label="Edit project" onPress={() => setEditing(true)} />
           </>

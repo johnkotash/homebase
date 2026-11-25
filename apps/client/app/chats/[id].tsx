@@ -1,7 +1,7 @@
 import { router, useLocalSearchParams } from "expo-router";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { FlatList, KeyboardAvoidingView, Platform, StyleSheet, View } from "react-native";
-import { isLiveRun, newId, type Approval, type Message, type MessageAttachment } from "@homebase/protocol";
+import { FILES_CAPABILITY, TERMINAL_CAPABILITY, isLiveRun, newId, type Approval, type Message, type MessageAttachment } from "@homebase/protocol";
 import { attachState } from "../../src/attachments";
 import { MessagePictures } from "../../src/components/Attachments";
 import { ApprovalCard } from "../../src/components/ApprovalCard";
@@ -25,6 +25,7 @@ import { MODE, agentModes, effectiveMode, modeWords } from "../../src/modes";
 import { useMap, useNow, useOne, useRunStream, useSetting, useSync } from "../../src/sync/hooks";
 import { mutate } from "../../src/sync/session";
 import { color, radius, space, tint } from "../../src/theme";
+import { startFolder } from "../../src/workspace/model";
 import { speak, stopSpeaking } from "../../src/voice/tts";
 
 type Item =
@@ -129,6 +130,12 @@ function Thread({ id }: { id: string }) {
   const modes = agentModes(agent);
   const mode = effectiveMode(agent, thread);
   const shownRun = liveRun ?? lastRun;
+  // Files, the editor and the terminal on the agent's machine, starting in the folder this session works in.
+  const hostFiles = !!agent?.capabilities?.includes(FILES_CAPABILITY);
+  const hostTerminal = !!agent?.capabilities?.includes(TERMINAL_CAPABILITY);
+  const workFolder = agent ? startFolder({ threadCwd: thread.cwd, lastRunCwd: lastRun?.cwd, projectCwd: project?.defaultCwd, agentDefault: agent.defaultCwd, workspaces: agent.workspaces }) : null;
+  const openWorkspace = (term: boolean) =>
+    router.push(`/workspace?agent=${encodeURIComponent(agent!.id)}${workFolder ? `&path=${encodeURIComponent(workFolder)}` : ""}${term ? "&terminal=1" : ""}` as any);
   const composerHint = agent && agent.status !== "online" ? `${agent.name} is offline. Your message is saved and the run starts when its connector is back.`
     : agent?.statusNote ?? (mode ? modeWords(mode, agent).short : undefined);
 
@@ -141,6 +148,8 @@ function Thread({ id }: { id: string }) {
           back="/chats"
           right={
             <>
+              {hostFiles ? <IconBtn icon="code" label={`Files and editor on ${agent!.name}'s machine${workFolder ? `, in ${workFolder}` : ""}`} testID="open-files" onPress={() => openWorkspace(false)} /> : null}
+              {hostTerminal ? <IconBtn icon="terminal" label="Terminal on the agent's machine" testID="open-terminal" onPress={() => openWorkspace(true)} /> : null}
               {/* One button for everything that organises the session: project, name, note, pin, archive. */}
               <IconBtn icon="folder" label={project ? `In ${project.name}. File, rename, pin or add a note` : "Unsorted. File, rename, pin or add a note"} active={!!project}
                 onPress={() => setOrganising(true)} />
