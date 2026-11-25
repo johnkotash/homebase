@@ -1,5 +1,5 @@
 import { router, useLocalSearchParams } from "expo-router";
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { FlatList, KeyboardAvoidingView, Platform, StyleSheet, View } from "react-native";
 import { FILES_CAPABILITY, TERMINAL_CAPABILITY, isLiveRun, newId, type Approval, type Message, type MessageAttachment } from "@homebase/protocol";
 import { attachState } from "../../src/attachments";
@@ -20,12 +20,13 @@ import { LeftOffBar, SessionList, SessionSheet } from "../../src/components/sess
 import { BrowserBar } from "../../src/components/BrowserPanel";
 import { Btn, Empty, Icon, IconBtn, T } from "../../src/components/ui";
 import { clock } from "../../src/format";
-import { Header, Split } from "../../src/layout/Shell";
+import { Header, Split, useLayout } from "../../src/layout/Shell";
 import { MODE, agentModes, effectiveMode, modeWords } from "../../src/modes";
 import { useMap, useNow, useOne, useRunStream, useSetting, useSync } from "../../src/sync/hooks";
 import { mutate } from "../../src/sync/session";
 import { color, radius, space, tint } from "../../src/theme";
 import { startFolder } from "../../src/workspace/model";
+import { WorkspacePane, type WorkspacePaneHandle } from "../../src/workspace/WorkspacePane";
 import { speak, stopSpeaking } from "../../src/voice/tts";
 
 type Item =
@@ -62,7 +63,10 @@ function Bubble({ m, pending }: { m: Message; pending: boolean }) {
   );
 }
 
-function Thread({ id }: { id: string }) {
+/** What the chat asks for: files or a terminal on an agent's machine, starting in a folder. */
+type WorkspaceAsk = { agentId: string; path: string | null; terminal: boolean };
+
+function Thread({ id, onWorkspace }: { id: string; onWorkspace: (ask: WorkspaceAsk) => void }) {
   const thread = useOne("threads", id);
   const agent = useSync((s) => (thread?.agentId ? s.entities.agents[thread.agentId] : undefined));
   const project = useSync((s) => (thread?.projectId ? s.entities.projects[thread.projectId] : undefined));
@@ -134,8 +138,7 @@ function Thread({ id }: { id: string }) {
   const hostFiles = !!agent?.capabilities?.includes(FILES_CAPABILITY);
   const hostTerminal = !!agent?.capabilities?.includes(TERMINAL_CAPABILITY);
   const workFolder = agent ? startFolder({ threadCwd: thread.cwd, lastRunCwd: lastRun?.cwd, projectCwd: project?.defaultCwd, agentDefault: agent.defaultCwd, workspaces: agent.workspaces }) : null;
-  const openWorkspace = (term: boolean) =>
-    router.push(`/workspace?agent=${encodeURIComponent(agent!.id)}${workFolder ? `&path=${encodeURIComponent(workFolder)}` : ""}${term ? "&terminal=1" : ""}` as any);
+  const openWorkspace = (term: boolean) => onWorkspace({ agentId: agent!.id, path: workFolder, terminal: term });
   const composerHint = agent && agent.status !== "online" ? `${agent.name} is offline. Your message is saved and the run starts when its connector is back.`
     : agent?.statusNote ?? (mode ? modeWords(mode, agent).short : undefined);
 
@@ -228,9 +231,60 @@ function Thread({ id }: { id: string }) {
   );
 }
 
+/**
+ * A session. On desktop (a wide window) Files and Terminal open in a panel beside the chat, so the owner can work in
+ * the files or the shell and keep talking to the agent; the panel can take the whole window and come back. On a
+ * phone they open on a screen of their own (app/workspace.tsx).
+ */
 export default function ThreadScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
-  return <Split show="detail" list={<SessionList selectedId={id} />} detail={<Thread id={id} key={id} />} />;
+  const { wide } = useLayout();
+  const [dock, setDock] = useState<WorkspaceAsk | null>(null);
+  const [expanded, setExpanded] = useState(false);
+  const pane = useRef<WorkspacePaneHandle>(null);
+  const docked = !!dock && wide;
+
+  const openWorkspace = useCallback((ask: WorkspaceAsk) => {
+    if (!wide || Platform.OS !== "web") {
+      router.push(`/workspace?agent=${encodeURIComponent(ask.agentId)}${ask.path ? `&path=${encodeURIComponent(ask.path)}` : ""}${ask.terminal ? "&terminal=1" : ""}` as any);
+      return;
+    }
+    // Already open on that machine: show the pane that was asked for (the open files and terminals stay).
+    if (dock && dock.agentId === ask.agentId) {
+      if (ask.terminal) pane.current?.showTerminal();
+      else pane.current?.showFiles();
+      return;
+    }
+    setDock(ask);
+  }, [wide, dock]);
+
+  const closeDock = useCallback(() => {
+    setDock(null);
+    setExpanded(false);
+  }, []);
+  const toggleExpand = useCallback(() => setExpanded((e) => !e), []);
+
+  return (
+    <Split
+      show="detail"
+      hideList={docked}
+      list={<SessionList selectedId={id} />}
+      detail={
+        <View style={{ flex: 1, flexDirection: "row", minWidth: 0 }}>
+          {/* The chat stays mounted while the workspace has the whole window, so nothing typed is lost. */}
+          <View style={[{ flex: 1, minWidth: 0 }, docked && { minWidth: 340 }, docked && expanded && { display: "none" }]}>
+            <Thread id={id} key={id} onWorkspace={openWorkspace} />
+          </View>
+          {docked ? (
+            <View style={{ flex: expanded ? 1 : 1.35, minWidth: 0, borderLeftWidth: 1, borderLeftColor: color.border }} testID="workspace-dock">
+              <WorkspacePane ref={pane} key={dock!.agentId} agentId={dock!.agentId} path={dock!.path} terminal={dock!.terminal}
+                onClose={closeDock} docked expanded={expanded} onExpand={toggleExpand} />
+            </View>
+          ) : null}
+        </View>
+      }
+    />
+  );
 }
 
 const st = StyleSheet.create({

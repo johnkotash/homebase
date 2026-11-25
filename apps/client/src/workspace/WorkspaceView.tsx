@@ -30,6 +30,12 @@ type Props = {
   copyText: (text: string) => Promise<void>;
   onDirty: (count: number) => Promise<void>;
   onClose: () => Promise<void>;
+  /** Desktop: shown in a panel beside the chat (true) rather than on its own screen. */
+  docked?: boolean;
+  /** Docked and taking the whole window (the chat is hidden). */
+  expanded?: boolean;
+  /** Docked: toggles between beside the chat and the whole window. */
+  onExpand?: () => Promise<void>;
   ref?: Ref<WorkspaceHandle>;
   dom?: DOMProps;
 };
@@ -70,7 +76,11 @@ class CallError extends Error {
 
 export default function WorkspaceView(props: Props) {
   const { init } = props;
-  const [wide, setWide] = useState(() => typeof window !== "undefined" && window.innerWidth >= 760 && !init.phone);
+  const rootRef = useRef<HTMLDivElement | null>(null);
+  const [width, setWidth] = useState(() => (typeof window !== "undefined" ? window.innerWidth : 1024));
+  const wide = width >= 640 && !init.phone;
+  const dockedRef = useRef(!!props.docked);
+  dockedRef.current = !!props.docked;
   const [pane, setPane] = useState<"files" | "editor" | "terminal">(init.openTerminal ? "terminal" : "files");
   const [roots, setRoots] = useState<FileRoots | null>(null);
   const [listing, setListing] = useState<FileListing | null>(null);
@@ -106,11 +116,19 @@ export default function WorkspaceView(props: Props) {
 
   const ask = useCallback((spec: DialogSpec) => new Promise<{ button: string; input: string }>((resolve) => setDialog({ spec, resolve })), []);
 
+  // The layout follows the view's own width (a panel beside the chat, or the whole window).
   useEffect(() => {
-    const onResize = () => setWide(window.innerWidth >= 760 && !init.phone);
-    window.addEventListener("resize", onResize);
-    return () => window.removeEventListener("resize", onResize);
-  }, [init.phone]);
+    const el = rootRef.current;
+    if (!el || typeof ResizeObserver === "undefined") {
+      const onResize = () => setWidth(window.innerWidth);
+      window.addEventListener("resize", onResize);
+      return () => window.removeEventListener("resize", onResize);
+    }
+    const ro = new ResizeObserver(() => setWidth(el.clientWidth || window.innerWidth));
+    ro.observe(el);
+    setWidth(el.clientWidth || window.innerWidth);
+    return () => ro.disconnect();
+  }, []);
 
   // ---------------------------------------------------------------- explorer
 
@@ -386,6 +404,8 @@ export default function WorkspaceView(props: Props) {
   // Ctrl/Cmd+S saves, Ctrl+W closes the tab, Ctrl+` toggles the terminal.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      // Beside the chat, the shortcuts are the workspace's only while focus is inside it (Ctrl+S in the chat box is not a save).
+      if (dockedRef.current && rootRef.current && !rootRef.current.contains(e.target as Node)) return;
       const mod = e.ctrlKey || e.metaKey;
       if (mod && e.key.toLowerCase() === "s") {
         e.preventDefault();
@@ -459,6 +479,14 @@ export default function WorkspaceView(props: Props) {
       }
     },
     requestClose: () => void requestClose(),
+    showTerminal: () => {
+      const t = termsRef.current;
+      if (t.length) {
+        setPanel(true);
+        setPane("terminal");
+      } else openTerminalRef.current(listingRef.current?.path ?? init.start);
+    },
+    showFiles: () => setPane("files"),
   }) as any, [applyEvent, requestClose]);
 
   const fitTerm = useCallback((key: string) => {
@@ -543,6 +571,8 @@ export default function WorkspaceView(props: Props) {
     setPanel(true);
     setPane("terminal");
   }, [init.terminal, roots, flash]);
+  const openTerminalRef = useRef(openTerminal);
+  openTerminalRef.current = openTerminal;
 
   const closeTerm = useCallback((key: string) => {
     const t = termsRef.current.find((x) => x.key === key);
@@ -713,26 +743,13 @@ export default function WorkspaceView(props: Props) {
     void load(cwd, { hidden: next, keepFilter: true });
   };
 
-  // Long-press on a phone opens the same menu as a right-click.
-  const press = useRef<{ timer: ReturnType<typeof setTimeout> | null; fired: boolean }>({ timer: null, fired: false });
-  const touchHandlers = (open: (x: number, y: number) => void) => ({
-    onTouchStart: (ev: React.TouchEvent) => {
-      const tt = ev.touches[0];
-      press.current.fired = false;
-      press.current.timer = setTimeout(() => {
-        press.current.fired = true;
-        open(tt.clientX, tt.clientY);
-      }, 480);
-    },
-    onTouchMove: () => press.current.timer && clearTimeout(press.current.timer),
-    onTouchEnd: (ev: React.TouchEvent) => {
-      if (press.current.timer) clearTimeout(press.current.timer);
-      if (press.current.fired) ev.preventDefault();
-    },
+  // Right-click opens an entry's menu on desktop. On a phone a tap only opens (a file) or goes in (a folder): the menu
+  // is the ⋯ button, so a tap never brings it up by mistake.
+  const touchHandlers = (open: (x: number, y: number) => void) => (init.phone ? {} : {
     onContextMenu: (ev: React.MouseEvent) => {
       ev.preventDefault();
       ev.stopPropagation();
-      if (!press.current.fired) open(ev.clientX, ev.clientY);
+      open(ev.clientX, ev.clientY);
     },
   });
 
@@ -744,7 +761,7 @@ export default function WorkspaceView(props: Props) {
   const showTerm = wide ? panel && terms.length > 0 : pane === "terminal";
 
   const explorer = (
-    <div className="hb-explorer" style={{ display: showFiles ? "flex" : "none", width: wide ? 300 : "100%" }}>
+    <div className="hb-explorer" style={{ display: showFiles ? "flex" : "none", width: wide ? (width < 900 ? 220 : 280) : "100%" }}>
       <div className="hb-row hb-tools">
         <select className="hb-select" value="" aria-label="Go to" onChange={(e) => e.target.value && void load(e.target.value)}>
           <option value="">Go to…</option>
@@ -776,7 +793,6 @@ export default function WorkspaceView(props: Props) {
             key={e.path}
             className={`hb-entry ${selected === e.path ? "sel" : ""} ${tabs.some((t) => t.path === e.path) ? "open" : ""}`}
             onClick={() => {
-              if (press.current.fired) return;
               setSelected(e.path);
               if (isDir(e)) void load(e.path);
               else void openFile(e.path);
@@ -896,10 +912,10 @@ export default function WorkspaceView(props: Props) {
   );
 
   return (
-    <div className="hb-root" onClick={() => menu && setMenu(null)}>
+    <div className={`hb-root ${init.phone ? "phone" : ""}`} ref={rootRef} onClick={() => menu && setMenu(null)}>
       <style>{CSS}</style>
       <div className="hb-top">
-        <button className="hb-icon back" title="Back" onClick={() => void requestClose()}>←</button>
+        {props.docked ? null : <button className="hb-icon back" title="Back" onClick={() => void requestClose()}>←</button>}
         <div className="hb-title">
           <div className="hb-h">{roots?.host ?? "Files"}</div>
           <div className="hb-sub">{init.agentName}{dirtyCount ? ` · ${dirtyCount} unsaved` : ""}</div>
@@ -920,6 +936,12 @@ export default function WorkspaceView(props: Props) {
             {init.terminal ? <button className={`hb-btn ${panel ? "on" : ""}`} onClick={() => (terms.length ? setPanel(!panel) : openTerminal(cwd ?? init.start))}>&gt;_ Terminal</button> : null}
           </div>
         )}
+        {props.onExpand ? (
+          <button className="hb-icon" title={props.expanded ? "Back beside the chat" : "Full window"} aria-label={props.expanded ? "Back beside the chat" : "Full window"} onClick={() => void props.onExpand?.()}>
+            {props.expanded ? "⇲" : "⛶"}
+          </button>
+        ) : null}
+        {props.docked ? <button className="hb-icon" title="Close" aria-label="Close the workspace" onClick={() => void requestClose()}>×</button> : null}
       </div>
       <div className="hb-body">
         {explorer}
@@ -1027,6 +1049,7 @@ html, body, #root { height: 100%; margin: 0; background: ${C.bg}; }
 .hb-more { background: none; border: 0; color: ${C.muted}; width: 26px; height: 26px; border-radius: 6px; visibility: hidden; }
 .hb-entry:hover .hb-more, .hb-entry.sel .hb-more { visibility: visible; }
 @media (hover: none) { .hb-more { visibility: visible; } }
+.hb-root.phone .hb-more { visibility: visible; width: 36px; height: 34px; font-size: 18px; }
 .hb-note { color: ${C.muted}; font-size: 12.5px; padding: 8px 10px; }
 .hb-note.error { color: ${C.danger}; }
 .hb-main { flex: 1; min-width: 0; flex-direction: column; }

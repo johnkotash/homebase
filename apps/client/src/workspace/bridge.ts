@@ -25,4 +25,8 @@ export type WorkspaceHandle = {
   push: (events: PushEvent[]) => void;
   /** The phone's back button: the view asks about unsaved files, then calls onClose. */
   requestClose: () => void;
+  /** Docked beside the chat: the chat's Terminal button, when the workspace is already open. */
+  showTerminal: () => void;
+  /** The chat's Files button, when the workspace is already open (a narrow panel shows one pane at a time). */
+  showFiles: () => void;
 };
