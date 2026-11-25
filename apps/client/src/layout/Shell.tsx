@@ -1,4 +1,5 @@
 import { router, usePathname } from "expo-router";
+import { UsageMini } from "../components/UsageMeter";
 import React, { useMemo } from "react";
 import { unreadCount } from "@homebase/protocol";
 import { Pressable, ScrollView, StyleSheet, View, useWindowDimensions, type StyleProp, type ViewStyle } from "react-native";
@@ -72,6 +73,7 @@ export function Rail() {
         {features.drivingMode ? item("drive", "/drive", "Driving mode", "navigation", /^\/drive/.test(path)) : null}
       </View>
       <View style={{ flex: 1 }} />
+      <UsageMini />
       {item("settings", "/settings", "Settings", "settings", /^\/settings/.test(path))}
       <View style={st.railFoot}>
         <View style={{ width: 7, height: 7, borderRadius: 4, backgroundColor: status === "online" ? color.ok : status === "offline" ? color.danger : color.warn }} />

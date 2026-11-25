@@ -14,6 +14,7 @@ import { VaultRelay, onVaultIndex } from "./vault";
 import { BrowserRelay } from "./browser";
 import { FolderRelay, backfillFolders } from "./folders";
 import { deliverable } from "./notify";
+import { onUsageReport } from "./usage";
 import { computeSla, pickPolicy, slaStateAt } from "./sla";
 import { DEFAULT_TRIAGE, triage, type InboxItemDraft } from "../ingest/triage";
 
@@ -379,6 +380,8 @@ export class WorkspaceHub {
         return this.ingestFromConnector(peer, frame.item);
       case "job.done":
         return onJobDone(this, peer, frame.job);
+      case "usage.report":
+        return onUsageReport(this, peer, frame.usage);
       case "vault.index":
         return onVaultIndex(this, peer, frame);
       case "browser.state":

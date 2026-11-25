@@ -25,6 +25,10 @@ Secret files (`~/.claude`, `~/.ssh`, `.env`, …) are blocked in every mode and 
 
 **Folders.** The agent starts in its sandbox (`data/claude-workspace` locally). Other folders must be allowlisted in `claude-agent.json` or approved from the app; a session stays in the folder it started in and follow-ups resume the same Claude session. Credential folders, the home folder and the vault can never be added.
 
+### Claude usage meter
+
+Every Claude run's CLI prints the plan's 5-hour and weekly usage. The connector forwards the latest numbers and the hub shows them on the home screen (and in the desktop side rail), with reset times and "as of" the last run. Inbox alerts are raised at 80 % (P2) and 95 % (P1) of a window, and when a limit is reached. One alert per window and level; they close themselves after the window resets. The thresholds are the synced setting `usage.alertThresholds` (default `[80, 95]`). HomeBase only reads what the CLI prints; it never reads Claude's credentials or calls usage endpoints. The numbers update only when a Claude run happens.
+
 ### Background jobs
 
 A run ends when the agent replies, and the agent cannot message you after that. Work that has to outlive the reply (another `claude -p` agent, a long build or migration) goes through `hbjob`:

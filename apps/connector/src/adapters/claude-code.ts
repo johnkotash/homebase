@@ -5,7 +5,7 @@ import { basename, delimiter, join, resolve } from "node:path";
 import { CLAUDE_AUTH_LABEL, claudeModels, claudeWorkspaces, type ClaudeAgentConfig, type ClaudeAuthMode } from "../config";
 import {
   AGENT_MARKUP_NOTE, EFFORT_LABEL, Effort as EffortSchema, ModelName, attachmentsSummary, modelLabel, sameModel, sniffImage,
-  type AgentAuthProof, type Effort, type MessageAttachment,
+  type AgentAuthProof, type Effort, type MessageAttachment, type UsageSnapshot,
 } from "@homebase/protocol";
 import type { PermissionMode, PermissionProfile, Verdict } from "../policy";
 import { ApprovalServer, PERMISSION_PROMPT_TOOL, PLAN_TOOL, handlePermission, isInside, type PermissionEnv } from "./claude-approvals";
@@ -376,6 +376,15 @@ export async function loadImageBlock(a: MessageAttachment, load: ((a: MessageAtt
 
 // ---------------------------------------------------------------- adapter
 
+/**
+ * Where plan usage goes (the connector forwards it to the hub as `usage.report`). One listener for every Claude
+ * agent on this connector: they all run on the same CLI login, so they share the same windows.
+ */
+let usageListener: ((u: UsageSnapshot) => void) | null = null;
+export function onClaudeUsage(fn: ((u: UsageSnapshot) => void) | null) {
+  usageListener = fn;
+}
+
 export interface ClaudeAdapterOptions {
   config: ClaudeAgentConfig;
   approvals: ApprovalServer;
@@ -550,6 +559,10 @@ export function createClaudeCodeAdapter(opts: ClaudeAdapterOptions): AgentAdapte
               const data = a.kind === "tool_result" && opts.redactToolOutput && typeof a.data.output === "string"
                 ? { ...a.data, output: opts.redactToolOutput(typeof a.data.tool === "string" ? a.data.tool : null, a.data.output) } : a.data;
               return ctx.emit(a.kind, data, a.persist === false ? { persist: false } : undefined);
+            }
+            if (a.type === "usage") {
+              usageListener?.({ ...a.usage, agentKey: ctx.run.agentKey, model: picked.model ?? null });
+              return;
             }
             if (a.type === "init") {
               if (cfg.auth === "subscription" && a.apiKeySource && a.apiKeySource !== "none") {
