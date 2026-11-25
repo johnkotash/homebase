@@ -7,6 +7,7 @@ import { AgentAvatar, RunStatusChip } from "../../src/components/bits";
 import { InboxRow } from "../../src/components/lists";
 import { ProjectStrip } from "../../src/components/projects";
 import { QuickCapture } from "../../src/components/QuickCapture";
+import { UsageMeter } from "../../src/components/UsageMeter";
 import { Card, Icon, Row, SectionTitle, T } from "../../src/components/ui";
 import { ago } from "../../src/format";
 import { Header, Screen, useLayout } from "../../src/layout/Shell";
@@ -124,6 +125,7 @@ export default function Home() {
         <Stat value={p0} label="P0 open" tone={color.p0} icon="alert-triangle" onPress={() => router.navigate("/inbox")} />
         <Stat value={live.length} label="Agents live" tone={color.accent} icon="zap" onPress={() => router.navigate("/agents")} />
       </View>
+      <UsageMeter />
       <ProjectStrip />
       {split ? (
         <View style={{ flexDirection: "row", gap: space.xl }}>

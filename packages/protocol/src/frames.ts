@@ -6,6 +6,7 @@ import { AgentImagesStatus } from "./images";
 import { AgentFolderFacts, FolderOp } from "./folders";
 import { FileOp, TERM_MAX_INPUT, TERM_MAX_OUTPUT, TermSize } from "./files";
 import { MessageAttachment } from "./attachments";
+import { UsageSnapshot } from "./usage";
 import { BrowserAckFrame, BrowserControlFrame, BrowserInputFrame, BrowserNoticeFrame, BrowserPictureFrame, BrowserStateFrame } from "./browser";
 
 const ClientInfo = z.object({ platform: z.string(), app: z.string(), name: z.string() });
@@ -164,12 +165,15 @@ export const JobDoneFrame = z.object({
   }),
 });
 export type JobDoneFrame = z.infer<typeof JobDoneFrame>;
+/** The latest Claude plan usage a run's CLI printed (usage.ts). */
+export const UsageReportFrame = z.object({ t: z.literal("usage.report"), usage: UsageSnapshot });
+export type UsageReportFrame = z.infer<typeof UsageReportFrame>;
 export const HeartbeatFrame = z.object({ t: z.literal("heartbeat"), activeRuns: z.number().int(), at: z.number().int() });
 
 export const InboundFrame = z.discriminatedUnion("t", [
   HelloFrame, MutateFrame, SubFrame, UnsubFrame, PingFrame, RegisterFrame, CmdAckFrame, RunStatusFrame,
   RunEventFrame, ApprovalRequestFrame, HeartbeatFrame, InboxIngestFrame, VaultReqFrame, VaultIndexFrame, VaultResponseFrame,
-  FoldersReqFrame, FoldersResponseFrame, JobDoneFrame,
+  FoldersReqFrame, FoldersResponseFrame, JobDoneFrame, UsageReportFrame,
   FilesReqFrame, FilesResponseFrame, TermOpenFrame, TermAttachFrame, TermInputFrame, TermResizeFrame, TermCloseFrame, PtyOpenedFrame, PtyOutputFrame, PtyExitFrame,
   // The browser for agents (browser.ts): state and pictures from a connector, a person's hands from a device.
   BrowserStateFrame, BrowserPictureFrame, BrowserNoticeFrame, BrowserInputFrame, BrowserControlFrame, BrowserAckFrame,
@@ -178,7 +182,7 @@ export type InboundFrame = z.infer<typeof InboundFrame>;
 export type ConnectorToHubFrame =
   | z.input<typeof HelloFrame> | z.input<typeof RegisterFrame> | z.input<typeof CmdAckFrame> | z.input<typeof RunStatusFrame>
   | z.input<typeof RunEventFrame> | z.input<typeof ApprovalRequestFrame> | z.input<typeof HeartbeatFrame> | z.input<typeof PingFrame> | z.input<typeof InboxIngestFrame>
-  | z.input<typeof VaultIndexFrame> | z.input<typeof VaultResponseFrame> | z.input<typeof FoldersResponseFrame> | z.input<typeof JobDoneFrame>
+  | z.input<typeof VaultIndexFrame> | z.input<typeof VaultResponseFrame> | z.input<typeof FoldersResponseFrame> | z.input<typeof JobDoneFrame> | z.input<typeof UsageReportFrame>
   | z.input<typeof FilesResponseFrame> | z.input<typeof PtyOpenedFrame> | z.input<typeof PtyOutputFrame> | z.input<typeof PtyExitFrame>;
 export type DeviceToHubFrame =
   | z.input<typeof HelloFrame> | z.input<typeof MutateFrame> | z.input<typeof SubFrame> | z.input<typeof UnsubFrame> | z.input<typeof PingFrame> | z.input<typeof VaultReqFrame> | z.input<typeof FoldersReqFrame>

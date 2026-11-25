@@ -1,4 +1,4 @@
-import type { RunEventKind } from "@homebase/protocol";
+import { usageFromRateLimit, type RunEventKind, type UsageSnapshot } from "@homebase/protocol";
 
 /**
  * Pure mapping from the Claude Code CLI's `--output-format stream-json` lines to HomeBase run
@@ -9,6 +9,8 @@ export type MappedAction =
   /** `system`/`init`: the CLI session is up. Emitted once per process, and again on every later turn. */
   | { type: "init"; sessionId: string; model: string | null; apiKeySource: string | null; cwd: string | null; tools: string[]; mcpServers: Array<{ name: string; status: string }> }
   /** One user turn finished. `ok: false` carries a readable error. */
+  /** The plan usage the CLI printed (every `rate_limit_event` with windows), for the usage meter. */
+  | { type: "usage"; usage: UsageSnapshot }
   | { type: "result"; ok: boolean; summary: string; error: string | null; sessionId: string | null; costUsd: number | null; numTurns: number | null; durationMs: number | null };
 
 export const MAX_TOOL_OUTPUT = 4096;
@@ -138,10 +140,12 @@ export class ClaudeStreamMapper {
 
       case "rate_limit_event": {
         const info = m.rate_limit_info;
-        if (!info || info.status === "allowed" || this.warnedLimit) return [];
+        const usage = usageFromRateLimit(info, Date.now());
+        const out: MappedAction[] = usage ? [{ type: "usage", usage }] : [];
+        if (!info || info.status === "allowed" || this.warnedLimit) return out;
         this.warnedLimit = true;
         const when = typeof info.resetsAt === "number" ? ` It resets at ${new Date(info.resetsAt * 1000).toISOString()}.` : "";
-        return [{ type: "event", kind: "system", data: { message: `Usage limit ${info.status === "rejected" ? "reached" : "warning"} (${String(info.rateLimitType ?? "plan").replace(/_/g, " ")}).${when}`, rateLimit: info.status } }];
+        return [...out, { type: "event", kind: "system", data: { message: `Usage limit ${info.status === "rejected" ? "reached" : "warning"} (${String(info.rateLimitType ?? "plan").replace(/_/g, " ")}).${when}`, rateLimit: info.status } }];
       }
 
       case "result": {

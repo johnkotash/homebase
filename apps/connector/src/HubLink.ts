@@ -119,6 +119,11 @@ export class HubLink {
     return this.send({ t: "inbox.ingest", item });
   }
 
+  /** Sends the latest Claude plan usage a run printed. False when the link is down. */
+  sendUsage(usage: Extract<ConnectorToHubFrame, { t: "usage.report" }>["usage"]): boolean {
+    return this.send({ t: "usage.report", usage });
+  }
+
   /** Tells the hub a background job (hbjob) has ended. False when the link is down. */
   sendJobDone(job: Extract<ConnectorToHubFrame, { t: "job.done" }>["job"]): boolean {
     return this.send({ t: "job.done", job });

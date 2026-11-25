@@ -116,4 +116,11 @@ describe("stream-json → run events", () => {
     expect(b.push("tail")).toEqual([]);
     expect(b.flush()).toEqual(["tail"]);
   });
+  it("forwards the plan usage of every rate_limit_event for the meter", () => {
+    const m = new ClaudeStreamMapper();
+    const ev = { type: "rate_limit_event", rate_limit_info: { status: "allowed", unifiedWindows: { five_hour: { utilization: 0.07, resetsAt: 1795091400, status: "allowed" }, seven_day: { utilization: 0.15, resetsAt: 1795590000, status: "allowed" } } } };
+    const out = m.message(ev as any);
+    expect(out).toHaveLength(1);
+    expect(out[0]).toMatchObject({ type: "usage", usage: { windows: { five_hour: { pct: 7 }, seven_day: { pct: 15 } } } });
+  });
 });

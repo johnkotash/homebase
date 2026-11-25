@@ -6,7 +6,7 @@ import { resolve } from "node:path";
 import { ApprovalServer, decidePermission } from "./adapters/claude-approvals";
 import { BackupMonitor } from "./backup-health";
 import { JobWatcher } from "./jobs";
-import { buildAuthProof, checkClaude, createClaudeCodeAdapter, type ClaudeReadiness, type ClaudeRunFacts } from "./adapters/claude-code";
+import { buildAuthProof, checkClaude, createClaudeCodeAdapter, onClaudeUsage, type ClaudeReadiness, type ClaudeRunFacts } from "./adapters/claude-code";
 import { createMockAdapter } from "./adapters/mock";
 import { BrowserService, mergeExtraMcp } from "./browser/service";
 import {
@@ -123,6 +123,13 @@ async function main() {
   const backups = new BackupMonitor({ emit: (item) => link?.ingestInbox(item) ?? false, log });
   // Background jobs (AGENTS.md): when a job an agent started with hbjob ends, the hub wakes its session to report.
   const jobs = new JobWatcher({ emit: (job) => link?.sendJobDone(job) ?? false, log });
+  // Claude plan usage (issue #4): the latest windows any run printed go to the hub for the meter and alerts.
+  // Kept when the link is down and sent on the next connect, so a report is not lost to a reconnect.
+  let pendingUsage: Parameters<HubLink["sendUsage"]>[0] | null = null;
+  onClaudeUsage((u) => {
+    pendingUsage = u;
+    if (link?.sendUsage(u)) pendingUsage = null;
+  });
   if (backups.enabled) log(`backup alerts: watching ${backups.config.statusFile} every ${backups.config.checkMs / 60_000} min (${backups.config.mode})`);
   if (claude.enabled) {
     readiness = await checkClaude(claude);
@@ -224,6 +231,7 @@ async function main() {
     agents,
     onReady: () => {
       notes?.sendFullIndex();
+      if (pendingUsage && link?.sendUsage(pendingUsage)) pendingUsage = null;
       try {
         backups.check();
       } catch (err) {
